@@ -95,7 +95,7 @@ For a conflict, use manual adoption:
 5. Merge the PR template into the project’s template. Preserve the kit license attribution and version lock.
 6. If you rename scripts or policy documents, update their imports, paths, agent links, and CI commands together. Some scripts expect the documented `scripts/`, `config/`, and `docs/` layout.
 
-There is no force-overwrite mode. Review the resulting target diff before committing.
+There is no force-overwrite mode. Review the resulting target diff before committing. For an already installed, locked project, use the [update command](updating.md) rather than reinstalling.
 
 ## 3. Configure your project
 
@@ -270,18 +270,20 @@ For projects using an assistant that does not read `AGENTS.md`, add a short inst
 
 ## 7. Update an adopted project
 
-Installed files are committed copies. The receiving project does not load a changing remote branch during CI. `development-standards.lock.json` records the source commit and kit package version.
+Installed files are committed copies. The receiving project does not load a changing remote branch during CI. `development-standards.lock.json` records the source commit and kit version.
 
-To update:
+Create an update branch in the receiving project, then select a clean, newly reviewed standards commit/tag in the separate kit clone. From the **kit root**:
 
-1. Create an update branch in the receiving project.
-2. Fetch the kit and select a newly reviewed commit/tag in a clean checkout.
-3. Install that version into an empty temporary directory.
-4. Compare the staged files with the adopted project and merge intended changes.
-5. Preserve local paths, floors, feature maps, suppression baselines, agent guidance, and custom verification jobs.
-6. Update the version lock to the new staged source commit, run relevant checks, and open an update PR.
+```sh
+node scripts/update.mjs --target "/absolute/path/to/MyProject" --dry-run
+node scripts/update.mjs --target "/absolute/path/to/MyProject"
+```
 
-Rerunning the installer after project customization can produce conflicts; this is expected. The initial installer deliberately has no force/update mode. Do not blindly replace local configuration or treat regenerated baseline counts as approved exceptions.
+The updater compares the installed baseline, local project files, and incoming standards. Compatible text changes are merged; local-only changes are kept. On unresolved conflicts, no files or lock are changed. After review, `--keep-local relative/path` can explicitly retain a conflicting local version. The versioned manifest allows additions/removals to be tracked and supports the known original v0.1 installations.
+
+Review the project diff, run the applicable profiles and project-specific verification, and commit the updated files and lock in one PR. CI example changes must be ported into active workflows separately. See [the full updater guide](updating.md) for conflict handling, missing history, and provenance checks.
+
+For unknown older installers, renamed managed files, or unrecoverable baseline commits, stage a fresh install and perform a reviewed manual migration. Never replace the lock with an invented baseline merely to make an update pass.
 
 ## Troubleshooting
 

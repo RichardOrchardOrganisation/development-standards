@@ -68,6 +68,7 @@ The installer preserves existing `AGENTS.md` content and the project’s license
 | UI verification | [Feature mapping and PR proof requirements](docs/verification.md) |
 | Pull requests | A template for agent, issue, tests, probes, skipped checks, and UI proof |
 | Installation | Dry-run, conflict checks, preserved project files, and a source version lock |
+| Updates | Three-way comparison, compatible text merges, conflict refusal, and reviewed local overrides |
 | CI | Consumer quality/proof examples and cross-platform tests for the kit |
 
 The .NET profile performs restore, Release build, format verification, tests with coverage, coverage gating, and CRAP reporting. The TypeScript profile runs your `typecheck`, `lint`, and `test:coverage` scripts and then merges Jest and Node reports. Both profiles check suppressions and the feature map.
@@ -82,6 +83,19 @@ The .NET profile performs restore, Release build, format verification, tests wit
 - Project architecture, deployment environments, and documented exceptions.
 
 The initial TypeScript adapter requires **both Jest and Node coverage suites**, with production code under the configured project’s `src/` directory. A root-level project is supported. A project with only one runner needs an adapter change; do not invent an empty second report. Other languages need their own executable adapters, but can still adopt the shared policies. CRAP requires method complexity in Coverlet Cobertura; LCOV alone cannot supply it.
+
+## Update a project
+
+From a clean checkout of a newly reviewed standards version:
+
+```sh
+node scripts/update.mjs --target "/absolute/path/to/your-project" --dry-run
+node scripts/update.mjs --target "/absolute/path/to/your-project"
+```
+
+The updater reads the installed commit from the project’s lock and compares it with the current local files and incoming standards. It merges compatible changes, preserves project customizations, and makes no changes if conflicts remain. After reviewing a conflict, `--keep-local relative/path` can retain that local version explicitly. Review the resulting project diff, run its checks, and commit the files and updated lock together.
+
+See [update instructions and conflict resolution](docs/updating.md). The updater runs from the standards clone; it is not copied into each application. CI workflow examples still require deliberate integration into the project’s active workflows.
 
 ## Coverage defaults
 
@@ -100,7 +114,7 @@ npm run test:typescript
 npm run test:dotnet
 ```
 
-Kit CI runs these checks on Linux, macOS, and Windows. No production database, service, emulator, or secret is required. Do not commit generated reports. See [updating an adopted project](docs/adoption.md#7-update-an-adopted-project) for bringing future changes into a consumer repository.
+Kit CI runs these checks on Linux, macOS, and Windows. No production database, service, emulator, or secret is required. Do not commit generated reports. See [the update command guide](docs/updating.md) for bringing future changes into a consumer repository.
 
 ## Source and license
 

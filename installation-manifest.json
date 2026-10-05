@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "source": "LICENSE",
+      "target": "docs/development-standards-LICENSE"
+    },
+    {
+      "source": "development-standards.json",
+      "target": "development-standards.json"
+    },
+    {
+      "source": "coverlet.runsettings",
+      "target": "coverlet.runsettings"
+    },
+    {
+      "source": "config/suppression-baseline.json",
+      "target": "config/suppression-baseline.json"
+    },
+    {
+      "source": "config/typescript-coverage.json",
+      "target": "config/typescript-coverage.json"
+    },
+    {
+      "source": "config/feature-map.json",
+      "target": "config/feature-map.json"
+    },
+    {
+      "source": "scripts/Test-CoverageGate.ps1",
+      "target": "scripts/Test-CoverageGate.ps1"
+    },
+    {
+      "source": "scripts/Get-CrapReport.ps1",
+      "target": "scripts/Get-CrapReport.ps1"
+    },
+    {
+      "source": "scripts/Test-TypeScriptCoverageGate.mjs",
+      "target": "scripts/Test-TypeScriptCoverageGate.mjs"
+    },
+    {
+      "source": "scripts/check-suppressions.mjs",
+      "target": "scripts/check-suppressions.mjs"
+    },
+    {
+      "source": "scripts/check-feature-map.mjs",
+      "target": "scripts/check-feature-map.mjs"
+    },
+    {
+      "source": "scripts/check-pr-verification.mjs",
+      "target": "scripts/check-pr-verification.mjs"
+    },
+    {
+      "source": "scripts/verify.mjs",
+      "target": "scripts/verify.mjs"
+    },
+    {
+      "source": "docs/testing.md",
+      "target": "docs/testing.md"
+    },
+    {
+      "source": "docs/coverage.md",
+      "target": "docs/coverage.md"
+    },
+    {
+      "source": "docs/verification.md",
+      "target": "docs/verification.md"
+    },
+    {
+      "source": "docs/suppressions.md",
+      "target": "docs/suppressions.md"
+    },
+    {
+      "source": "docs/adoption.md",
+      "target": "docs/adoption.md"
+    },
+    {
+      "source": "docs/provenance.md",
+      "target": "docs/provenance.md"
+    },
+    {
+      "source": "templates/pull_request_template.md",
+      "target": ".github/pull_request_template.md"
+    },
+    {
+      "source": "examples/consumer-quality.yml",
+      "target": "examples/development-standards-quality.yml"
+    },
+    {
+      "source": "examples/consumer-pr-verification.yml",
+      "target": "examples/development-standards-pr-verification.yml"
+    },
+    {
+      "source": "docs/updating.md",
+      "target": "docs/updating.md"
+    }
+  ]
+}

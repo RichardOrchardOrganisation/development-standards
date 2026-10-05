@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "dotnet": {
+    "solution": "YourProject.sln",
+    "globalLine": 91,
+    "changedLine": 70,
+    "reports": "TestResults"
+  },
+  "typescript": {
+    "projectRoot": "app",
+    "reports": "app/coverage",
+    "floors": "config/typescript-coverage.json"
+  },
+  "uiPaths": []
+}

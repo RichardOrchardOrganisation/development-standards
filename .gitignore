@@ -1,0 +1,6 @@
+node_modules/
+TestResults/
+coverage-report/
+coverage/
+.standards-test-tmp/
+.DS_Store

@@ -10,6 +10,8 @@ import {
   findSuppressions,
   formatBaseline,
   isScannedPath,
+  issueLinkPattern,
+  loadPolicy,
   listSourceFiles,
   main,
   readRepo,
@@ -181,4 +183,38 @@ test('main --write then check passes, and a new unlinked suppression fails', () 
   writeFileSync(path.join(root, 'src/a.ts'), '// eslint-disable-line\n');
   assert.equal(main(['--list'], io), 0);
   assert.deepEqual(logs, ['src/a.ts:1 [eslint-disable] // eslint-disable-line']);
+});
+
+test('project policy skips configured generated directories and sets the issue-link digits', () => {
+  const root = makeRepo({
+    'development-standards.json': JSON.stringify({ version: 1, suppressions: { skippedPaths: ['app/android'], minIssueDigits: 2 } }),
+    'app/android/app/e.js': '// eslint-disable-line\n',
+    'config/suppression-baseline.json': '{"files":{}}\n',
+    'app/src/f.ts': '// eslint-disable-line -- reason (#7)\n// eslint-disable-line -- reason (#1234)\n',
+  });
+  const policy = loadPolicy(root);
+  assert.deepEqual([...policy.skippedPaths], ['app/android']);
+  assert.deepEqual(listSourceFiles(root, '', policy.skippedPaths).sort(), ['app/src/f.ts', 'config/suppression-baseline.json', 'development-standards.json']);
+  assert.deepEqual(findSuppressions('// eslint-disable-line -- (#7)', policy).map((hit) => hit.linked), [false]);
+  assert.deepEqual(findSuppressions('// eslint-disable-line -- (#7)').map((hit) => hit.linked), [true]);
+
+  const logs = [];
+  const io = { root, log: (line) => logs.push(line), error: () => {} };
+  assert.equal(main(['--write'], io), 0);
+  const baseline = JSON.parse(readFileSync(path.join(root, BASELINE_PATH), 'utf8'));
+  assert.deepEqual(baseline.files, { 'app/src/f.ts': { 'eslint-disable': 1 } });
+  logs.length = 0;
+  assert.equal(main(['--list'], io), 0);
+  assert.deepEqual(logs, ['app/src/f.ts:1 [eslint-disable] // eslint-disable-line -- reason (#7)']);
+});
+
+test('policy defaults without configuration and rejects unsafe or invalid settings', () => {
+  assert.equal(loadPolicy(makeRepo({ 'src/a.ts': 'a' })).skippedPaths.size, 0);
+  assert.equal(loadPolicy(makeRepo({ 'development-standards.json': '{"version":1}' })).issueLink.test('(#1)'), true);
+  assert.equal(issueLinkPattern(3).test('(#12)'), false);
+  assert.equal(issueLinkPattern(3).test('https://github.com/org/repo/issues/1'), true);
+  for (const suppressions of [{ skippedPaths: ['../x'] }, { skippedPaths: ['/abs'] }, { skippedPaths: ['gen/'] }, { skippedPaths: 'gen' }, { minIssueDigits: 0 }, { minIssueDigits: 1.5 }]) {
+    const root = makeRepo({ 'development-standards.json': JSON.stringify({ version: 1, suppressions }) });
+    assert.throws(() => loadPolicy(root), /suppressions\./, JSON.stringify(suppressions));
+  }
 });

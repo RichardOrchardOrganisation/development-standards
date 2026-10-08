@@ -19,7 +19,7 @@
  * are skipped), so untracked source files count too. The audit behind the baseline is
  * docs/suppressions.md.
  */
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -38,7 +38,12 @@ export const KINDS = {
   'hack-comment': /(?:\/\/|\/\*|#|<!--|@\*)\s*(?:HACK|FIXME)\b/,
 };
 
-const ISSUE_LINK = /\(#\d+\)|github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/;
+/** `(#N)` with at least `minIssueDigits` digits, or a full GitHub issue URL. */
+export function issueLinkPattern(minIssueDigits = 1) {
+  return new RegExp(`\\(#\\d{${minIssueDigits},}\\)|github\\.com\\/[\\w.-]+\\/[\\w.-]+\\/issues\\/\\d+`);
+}
+
+export const DEFAULT_POLICY = Object.freeze({ skippedPaths: new Set(), issueLink: issueLinkPattern() });
 
 const SOURCE_EXTENSIONS = new Set([
   '.cs',
@@ -70,7 +75,27 @@ const IGNORED_PATHS = [
  * with every dot-directory (.git, .github, .claude worktrees, .expo, ...).
  */
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'bin', 'obj', 'TestResults', 'coverage', 'artifacts']);
-const SKIPPED_DIRECTORY_PATHS = new Set(); // Configure generated outputs in project policy; no app-specific exclusions.
+
+/**
+ * Project policy from the optional `suppressions` object in development-standards.json:
+ * `skippedPaths` lists repo-relative generated directories (for example native projects
+ * produced at build time), and `minIssueDigits` sets how many digits an `(#N)` link needs.
+ */
+export function loadPolicy(root) {
+  const configFile = path.join(root, 'development-standards.json');
+  const settings = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')).suppressions : undefined;
+  if (settings === undefined) {
+    return DEFAULT_POLICY;
+  }
+  const { skippedPaths = [], minIssueDigits = 1 } = settings;
+  if (!Array.isArray(skippedPaths) || skippedPaths.some((item) => typeof item !== 'string' || !item || item.startsWith('/') || item.endsWith('/') || item.includes('\\') || item.split('/').includes('..'))) {
+    throw new Error('suppressions.skippedPaths must list repo-relative directories without a trailing slash.');
+  }
+  if (!Number.isInteger(minIssueDigits) || minIssueDigits < 1) {
+    throw new Error('suppressions.minIssueDigits must be a positive integer.');
+  }
+  return { skippedPaths: new Set(skippedPaths), issueLink: issueLinkPattern(minIssueDigits) };
+}
 
 export function repoRootFrom(moduleUrl = import.meta.url) {
   return path.resolve(path.dirname(fileURLToPath(moduleUrl)), '..');
@@ -84,13 +109,13 @@ export function isScannedPath(relativePath) {
 /**
  * Returns one entry per suppression in `text`: `{ kind, line, linked, text }`.
  */
-export function findSuppressions(text) {
+export function findSuppressions(text, policy = DEFAULT_POLICY) {
   const found = [];
   const lines = String(text || '').split(/\r?\n/);
   lines.forEach((lineText, index) => {
     for (const [kind, pattern] of Object.entries(KINDS)) {
       if (pattern.test(lineText)) {
-        found.push({ kind, line: index + 1, linked: ISSUE_LINK.test(lineText), text: lineText.trim() });
+        found.push({ kind, line: index + 1, linked: policy.issueLink.test(lineText), text: lineText.trim() });
       }
     }
   });
@@ -98,10 +123,10 @@ export function findSuppressions(text) {
 }
 
 /** Unlinked counts as `{ path: { kind: count } }`, with sorted keys. */
-export function countUnlinked(filesWithText) {
+export function countUnlinked(filesWithText, policy = DEFAULT_POLICY) {
   const counts = {};
   for (const [file, text] of filesWithText) {
-    for (const hit of findSuppressions(text)) {
+    for (const hit of findSuppressions(text, policy)) {
       if (hit.linked) {
         continue;
       }
@@ -169,13 +194,13 @@ export function totalsByKind(counts) {
  * Repo-relative POSIX paths of every file under `root`, minus build output and dot-directories.
  * Walks the tree instead of running `git ls-files`, so the check starts no external process.
  */
-export function listSourceFiles(root, relativeDir = '') {
+export function listSourceFiles(root, relativeDir = '', skippedPaths = DEFAULT_POLICY.skippedPaths) {
   const files = [];
   for (const entry of readdirSync(path.join(root, relativeDir), { withFileTypes: true })) {
     const relative = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      if (!entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name) && !SKIPPED_DIRECTORY_PATHS.has(relative)) {
-        files.push(...listSourceFiles(root, relative));
+      if (!entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name) && !skippedPaths.has(relative)) {
+        files.push(...listSourceFiles(root, relative, skippedPaths));
       }
     } else if (entry.isFile()) {
       files.push(relative);
@@ -201,13 +226,14 @@ export function formatBaseline(counts) {
 }
 
 export function main(argv = process.argv.slice(2), { root = repoRootFrom(), log = console.log, error = console.error } = {}) {
-  const filesWithText = readRepo(root);
-  const current = countUnlinked(filesWithText);
+  const policy = loadPolicy(root);
+  const filesWithText = readRepo(root, listSourceFiles(root, '', policy.skippedPaths));
+  const current = countUnlinked(filesWithText, policy);
   const baselineFile = path.join(root, BASELINE_PATH);
 
   if (argv.includes('--list')) {
     for (const [file, text] of filesWithText) {
-      for (const hit of findSuppressions(text).filter((entry) => !entry.linked)) {
+      for (const hit of findSuppressions(text, policy).filter((entry) => !entry.linked)) {
         log(`${file}:${hit.line} [${hit.kind}] ${hit.text}`);
       }
     }

@@ -12,6 +12,9 @@ param(
 
     [switch]$RequireBaseRef,
 
+    # Floors default to dotnet.globalLine / dotnet.changedLine in this file.
+    [string]$ConfigPath = (Join-Path $PSScriptRoot "../development-standards.json"),
+
     [switch]$SelfTest
 )
 
@@ -22,12 +25,12 @@ if (-not $SelfTest -and [string]::IsNullOrWhiteSpace($Reports)) {
 }
 
 if (-not $SelfTest -and (-not $PSBoundParameters.ContainsKey('GlobalLineThreshold') -or -not $PSBoundParameters.ContainsKey('ChangedLineThreshold'))) {
-    $profile = (Get-Content -Raw -LiteralPath './development-standards.json' | ConvertFrom-Json).dotnet
-    if ($null -eq $profile.globalLine -or $null -eq $profile.changedLine) {
+    $dotnetProfile = (Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json).dotnet
+    if ($null -eq $dotnetProfile.globalLine -or $null -eq $dotnetProfile.changedLine) {
         throw "Configure dotnet.globalLine and dotnet.changedLine in development-standards.json."
     }
-    if (-not $PSBoundParameters.ContainsKey('GlobalLineThreshold')) { $GlobalLineThreshold = $profile.globalLine }
-    if (-not $PSBoundParameters.ContainsKey('ChangedLineThreshold')) { $ChangedLineThreshold = $profile.changedLine }
+    if (-not $PSBoundParameters.ContainsKey('GlobalLineThreshold')) { $GlobalLineThreshold = $dotnetProfile.globalLine }
+    if (-not $PSBoundParameters.ContainsKey('ChangedLineThreshold')) { $ChangedLineThreshold = $dotnetProfile.changedLine }
 }
 
 function Get-RepoRelativePath {
@@ -86,7 +89,7 @@ function Get-ChangedLines {
 
     if ([string]::IsNullOrWhiteSpace($BaseRef)) {
         if ($RequireBaseRef) { throw "Changed-line coverage requires a base ref." }
-        Write-Host "No base ref supplied; skipping changed-line coverage gate."
+        Write-Information -InformationAction Continue "No base ref supplied; skipping changed-line coverage gate."
         return @{}
     }
 
@@ -105,7 +108,7 @@ function Get-ChangedLines {
     git rev-parse --verify --quiet "$resolvedBaseRef^{commit}" *> $null
     if ($LASTEXITCODE -ne 0) {
         if ($RequireBaseRef) { throw "Base ref '$BaseRef' is not available locally." }
-        Write-Host "Base ref '$BaseRef' is not available locally; skipping changed-line coverage gate."
+        Write-Information -InformationAction Continue "Base ref '$BaseRef' is not available locally; skipping changed-line coverage gate."
         return @{}
     }
 
@@ -121,6 +124,12 @@ function Get-ChangedLines {
         throw "Unable to calculate changed lines against '$resolvedBaseRef'."
     }
 
+    return ConvertFrom-CoverageDiff -DiffLines $diffLines
+}
+
+function ConvertFrom-CoverageDiff {
+    param([AllowEmptyCollection()][string[]]$DiffLines)
+
     $changedLines = @{}
     $currentFile = $null
 
@@ -133,21 +142,21 @@ function Get-ChangedLines {
             continue
         }
 
-        if ($null -eq $currentFile) {
-            continue
-        }
-
+        if ($null -eq $currentFile) { continue }
         if ($line -match '^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@') {
-            $startLine = [int]$Matches[1]
-            $lineCount = if ($Matches[2]) { [int]$Matches[2] } else { 1 }
-
-            for ($offset = 0; $offset -lt $lineCount; $offset++) {
-                [void]$changedLines[$currentFile].Add($startLine + $offset)
-            }
+            Add-CoverageHunk -Lines $changedLines[$currentFile] -StartLine ([int]$Matches[1]) -CountText $Matches[2]
         }
     }
 
     return $changedLines
+}
+
+function Add-CoverageHunk {
+    param([System.Collections.Generic.HashSet[int]]$Lines, [int]$StartLine, [string]$CountText)
+    $lineCount = if ($CountText) { [int]$CountText } else { 1 }
+    for ($offset = 0; $offset -lt $lineCount; $offset++) {
+        [void]$Lines.Add($StartLine + $offset)
+    }
 }
 
 # Coverlet writes UTF-8 coverage.cobertura.xml under a GUID folder. The TRX
@@ -160,19 +169,19 @@ function Read-CoberturaDocument {
 
     $fileName = [System.IO.Path]::GetFileName($Path)
     if (-not $fileName.Equals("coverage.cobertura.xml", [StringComparison]::OrdinalIgnoreCase)) {
-        Write-Host "Skipping non-cobertura file: $Path"
+        Write-Information -InformationAction Continue "Skipping non-cobertura file: $Path"
         return $null
     }
 
     $bytes = [System.IO.File]::ReadAllBytes($Path)
     if ($bytes.Length -eq 0) {
-        Write-Host "Skipping empty coverage file: $Path"
+        Write-Information -InformationAction Continue "Skipping empty coverage file: $Path"
         return $null
     }
 
     foreach ($byte in $bytes) {
         if ($byte -eq 0) {
-            Write-Host "Skipping coverage file with NUL bytes (likely a TRX attachment copy): $Path"
+            Write-Information -InformationAction Continue "Skipping coverage file with NUL bytes (likely a TRX attachment copy): $Path"
             return $null
         }
     }
@@ -186,12 +195,12 @@ function Read-CoberturaDocument {
         $document = [xml]$text
     }
     catch {
-        Write-Host "Skipping unreadable coverage file '${Path}': $($_.Exception.Message)"
+        Write-Information -InformationAction Continue "Skipping unreadable coverage file '${Path}': $($_.Exception.Message)"
         return $null
     }
 
     if ($null -eq $document.coverage) {
-        Write-Host "Skipping XML that is not a Cobertura coverage document: $Path"
+        Write-Information -InformationAction Continue "Skipping XML that is not a Cobertura coverage document: $Path"
         return $null
     }
 
@@ -263,6 +272,8 @@ function Invoke-BaseShaSelfTest {
         $gitIdentity = @("-c", "user.name=Coverage Gate Self-Test", "-c", "user.email=self-test@example.invalid", "-c", "commit.gpgsign=false")
         git init --quiet --initial-branch=main 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Self-test failed: git init failed." }
+        # Git resolves macOS /var -> /private/var; use the same root as child processes.
+        $repoRoot = (git rev-parse --show-toplevel).Trim()
 
         $sampleDir = Join-Path $repoRoot "src/Example.Web"
         New-Item -ItemType Directory -Path $sampleDir | Out-Null
@@ -310,6 +321,33 @@ function Invoke-BaseShaSelfTest {
     }
     finally {
         Pop-Location
+    }
+}
+
+# Omitted thresholds come from the project configuration, so CI and local runs share one floor.
+function Invoke-ConfiguredFloorSelfTest {
+    param([string]$TempRoot, [string]$Pwsh)
+
+    $configDir = Join-Path $TempRoot "configured-floors"
+    New-Item -ItemType Directory -Path $configDir | Out-Null
+    $strictConfig = Join-Path $configDir "strict.json"
+    $missingConfig = Join-Path $configDir "missing.json"
+    [System.IO.File]::WriteAllText($strictConfig, '{ "version": 1, "dotnet": { "globalLine": 101, "changedLine": 0 } }')
+    [System.IO.File]::WriteAllText($missingConfig, '{ "version": 1, "dotnet": { "changedLine": 0 } }')
+
+    $strictOutput = & $Pwsh -NoProfile -File $PSCommandPath -Reports $TempRoot -ConfigPath $strictConfig -BaseRef "" 2>&1
+    if ($LASTEXITCODE -eq 0 -or (@($strictOutput) -join [Environment]::NewLine) -notmatch 'below the required 101%') {
+        throw "Self-test failed: an omitted global threshold must come from dotnet.globalLine. Output:`n$($strictOutput | Out-String)"
+    }
+
+    $overrideOutput = & $Pwsh -NoProfile -File $PSCommandPath -Reports $TempRoot -ConfigPath $strictConfig -GlobalLineThreshold 0 -BaseRef "" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Self-test failed: an explicit threshold must override the configured floor. Output:`n$($overrideOutput | Out-String)"
+    }
+
+    $missingOutput = & $Pwsh -NoProfile -File $PSCommandPath -Reports $TempRoot -ConfigPath $missingConfig -BaseRef "" 2>&1
+    if ($LASTEXITCODE -eq 0 -or (@($missingOutput) -join [Environment]::NewLine) -notmatch 'Configure dotnet.globalLine') {
+        throw "Self-test failed: a configuration without dotnet floors must fail closed."
     }
 }
 
@@ -399,9 +437,11 @@ function Invoke-CoverageGateSelfTest {
             throw "Self-test failed: empty reports dir produced unexpected error. Output:`n$emptyText"
         }
 
+        Invoke-ConfiguredFloorSelfTest -TempRoot $tempRoot -Pwsh $pwsh.Source
+
         Invoke-BaseShaSelfTest -TempRoot $tempRoot -Pwsh $pwsh.Source
 
-        Write-Host "Test-CoverageGate.ps1 self-test passed."
+        Write-Information -InformationAction Continue "Test-CoverageGate.ps1 self-test passed."
     }
     finally {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -481,7 +521,7 @@ if ($totalLinesValid -eq 0) {
 }
 
 $globalLineCoverage = [math]::Round(($totalLinesCovered / $totalLinesValid) * 100, 2)
-Write-Host "Global line coverage: $globalLineCoverage% ($totalLinesCovered/$totalLinesValid) [union of $($reportFiles.Count) reports]"
+Write-Information -InformationAction Continue "Global line coverage: $globalLineCoverage% ($totalLinesCovered/$totalLinesValid) [union of $($reportFiles.Count) reports]"
 
 if ($globalLineCoverage -lt $GlobalLineThreshold) {
     throw "Global line coverage $globalLineCoverage% is below the required $GlobalLineThreshold%."
@@ -489,7 +529,7 @@ if ($globalLineCoverage -lt $GlobalLineThreshold) {
 
 $changedLines = Get-ChangedLines -BaseRef $BaseRef -HeadRef $HeadRef
 if ($changedLines.Count -eq 0) {
-    Write-Host "No changed C# lines found for patch coverage."
+    Write-Information -InformationAction Continue "No changed C# lines found for patch coverage."
     exit 0
 }
 
@@ -519,20 +559,20 @@ foreach ($file in $changedLines.Keys) {
 }
 
 if ($changedCoverableLines -eq 0) {
-    Write-Host "Changed C# lines do not overlap coverable lines in the Cobertura report."
+    Write-Information -InformationAction Continue "Changed C# lines do not overlap coverable lines in the Cobertura report."
     exit 0
 }
 
 $changedLineCoverage = [math]::Round(($changedCoveredLines / $changedCoverableLines) * 100, 2)
-Write-Host "Changed-line coverage: $changedLineCoverage% ($changedCoveredLines/$changedCoverableLines)"
+Write-Information -InformationAction Continue "Changed-line coverage: $changedLineCoverage% ($changedCoveredLines/$changedCoverableLines)"
 
 if ($changedLineCoverage -lt $ChangedLineThreshold) {
     $sample = $uncoveredChangedLines | Select-Object -First 20
-    Write-Host "Uncovered changed lines:"
-    $sample | ForEach-Object { Write-Host "  $_" }
+    Write-Information -InformationAction Continue "Uncovered changed lines:"
+    $sample | ForEach-Object { Write-Information -InformationAction Continue "  $_" }
 
     if ($uncoveredChangedLines.Count -gt $sample.Count) {
-        Write-Host "  ...and $($uncoveredChangedLines.Count - $sample.Count) more."
+        Write-Information -InformationAction Continue "  ...and $($uncoveredChangedLines.Count - $sample.Count) more."
     }
 
     throw "Changed-line coverage $changedLineCoverage% is below the required $ChangedLineThreshold%."

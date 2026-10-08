@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { install } from './install.mjs';
 import { checkMap } from './check-feature-map.mjs';
 import { checkPullRequestVerification, evaluate } from './check-pr-verification.mjs';
-import { getChangedLines } from './Test-TypeScriptCoverageGate.mjs';
+import { getChangedLines, resolveProjectRoot } from './Test-TypeScriptCoverageGate.mjs';
 function temporary(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'standards-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -177,4 +178,31 @@ test('Actions entry point passes proof, clears a stale label, and exempts Depend
   const none = fakeActions({ files: [] });
   none.context.payload = {};
   assert.equal((await checkPullRequestVerification({ ...none, root })).skipped, true);
+});
+
+test('TypeScript project root comes from the environment, then typescript.projectRoot, then app', (t) => {
+  const root = temporary(t);
+  assert.equal(resolveProjectRoot(root, {}), 'app');
+  writeFileSync(path.join(root, 'development-standards.json'), JSON.stringify({ version: 1, typescript: { projectRoot: 'clients/mobile/' } }));
+  assert.equal(resolveProjectRoot(root, {}), 'clients/mobile');
+  assert.equal(resolveProjectRoot(root, { STANDARDS_TS_PROJECT: '.' }), '.');
+  for (const projectRoot of ['../outside', '/abs', 7, '']) {
+    writeFileSync(path.join(root, 'development-standards.json'), JSON.stringify({ version: 1, typescript: { projectRoot } }));
+    assert.throws(() => resolveProjectRoot(root, {}), /Invalid TypeScript project root/, JSON.stringify(projectRoot));
+  }
+});
+
+test('an installed TypeScript gate reads its project from the configuration in any working directory', (t) => {
+  const root = temporary(t);
+  mkdirSync(path.join(root, 'scripts'));
+  copyFileSync(path.resolve('scripts/Test-TypeScriptCoverageGate.mjs'), path.join(root, 'scripts/Test-TypeScriptCoverageGate.mjs'));
+  writeFileSync(path.join(root, 'development-standards.json'), JSON.stringify({ version: 1, typescript: { projectRoot: 'clients/mobile' } }));
+  const projectDir = path.join(root, 'clients/mobile');
+  mkdirSync(projectDir, { recursive: true });
+  const code = `import { COVERABLE_GLOB } from ${JSON.stringify(pathToFileURL(path.join(root, 'scripts/Test-TypeScriptCoverageGate.mjs')).href)}; console.log(COVERABLE_GLOB);`;
+  const env = { ...process.env };
+  delete env.STANDARDS_TS_PROJECT;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: projectDir, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'clients/mobile/src/**/*.{ts,tsx}');
 });

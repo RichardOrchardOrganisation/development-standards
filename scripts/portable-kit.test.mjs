@@ -206,3 +206,13 @@ test('an installed TypeScript gate reads its project from the configuration in a
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'clients/mobile/src/**/*.{ts,tsx}');
 });
+
+test('the TypeScript gate self-test and fixture exclusions hold for nested and root projects', () => {
+  for (const project of ['clients/mobile', '.']) {
+    const selfTest = spawnSync(process.execPath, ['scripts/Test-TypeScriptCoverageGate.mjs', '--self-test'], { env: { ...process.env, STANDARDS_TS_PROJECT: project }, encoding: 'utf8' });
+    assert.equal(selfTest.status, 0, `${project}: ${selfTest.stdout}${selfTest.stderr}`);
+  }
+  const code = 'import { isCoverableRepoPath } from "./scripts/Test-TypeScriptCoverageGate.mjs"; if (isCoverableRepoPath("src/test/fixtures.ts") || !isCoverableRepoPath("src/test-utils.ts")) process.exit(1);';
+  const root = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, STANDARDS_TS_PROJECT: '.' }, encoding: 'utf8' });
+  assert.equal(root.status, 0, root.stderr);
+});

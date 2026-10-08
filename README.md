@@ -63,7 +63,7 @@ The installer preserves existing `AGENTS.md` content and the project’s license
 | Agent rules | A managed section appended to your project’s `AGENTS.md` |
 | Test writing | [Behavior, boundaries, regression cases, contracts, and test layers](docs/testing.md) |
 | Coverage | [Global and changed-line gates, complete source reporting, and merged hits](docs/coverage.md) |
-| Complexity | Coverlet-based CRAP reporting; methods above 30 are highlighted for review |
+| Complexity | Coverlet-based CRAP reporting; methods above 30 are highlighted, with an optional baseline ratchet |
 | Suppressions | [Linked exceptions and a shrinking per-file baseline](docs/suppressions.md) |
 | UI verification | [Feature mapping and PR proof requirements](docs/verification.md) |
 | Pull requests | A template for agent, issue, tests, probes, skipped checks, and UI proof |
@@ -101,7 +101,7 @@ See [update instructions and conflict resolution](docs/updating.md). The updater
 
 The starter .NET profile uses 91% global and 70% changed-line coverage, matching QueenZone’s executable CI gate at extraction. TypeScript starter floors are 90% lines, 70% branches, and 70% changed lines; these are suggested new-project values, not QueenZone’s measured mobile baseline.
 
-For an existing project, measure first and explicitly review its initial floors. Ratchet them upward as coverage improves. CRAP is informational, not an automatic merge blocker. Numeric floors live in project configuration; passing percentages do not replace useful assertions.
+For an existing project, measure first and explicitly review its initial floors. Ratchet them upward as coverage improves. CRAP is informational unless a project opts into the baseline ratchet (`-Baseline` with `-Enforce`). Numeric floors live in project configuration; passing percentages do not replace useful assertions.
 
 ## Validate or maintain this kit
 

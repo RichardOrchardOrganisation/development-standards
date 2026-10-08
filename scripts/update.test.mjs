@@ -41,13 +41,13 @@ function tree(root) {
   walk('');
   return result;
 }
-function fixture(t) {
+function fixture(t, { reviewKeys } = {}) {
   const source = temporary(t);
   const target = temporary(t);
   git(source, 'init', '--quiet');
   const manifest = { version: 1, files: [
     { source: 'rules.md', target: 'docs/rules.md' },
-    { source: 'settings.json', target: 'config/settings.json' },
+    { source: 'settings.json', target: 'config/settings.json', ...(reviewKeys ? { reviewKeys } : {}) },
   ] };
   write(source, 'installation-manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
   write(source, 'package.json', '{"version":"1.0.0"}\n');
@@ -277,4 +277,69 @@ test('unknown legacy installer and overlapping manifest targets are refused', (t
     assert.throws(() => update(target, { source }), /Duplicate or overlapping|Invalid repository-relative/);
     assert.deepEqual(tree(target), before);
   }
+});
+
+test('a project-owned floor never changes silently, even when the text merges cleanly', (t) => {
+  const { source, target } = fixture(t, { reviewKeys: ['floor'] });
+  // The project keeps the default floor but edits a non-adjacent line, so Git would merge cleanly.
+  write(target, 'config/settings.json', read(target, 'config/settings.json').replace('"mode": "old"', '"mode": "local"'));
+  write(source, 'settings.json', read(source, 'settings.json').replace('"floor": 70', '"floor": 80'));
+  write(source, 'rules.md', read(source, 'rules.md').replace('third rule', 'incoming third rule'));
+  const incoming = commit(source, 'raise default floor');
+  const before = tree(target);
+  const blocked = update(target, { source });
+  assert.equal(blocked.applied, false);
+  assert.deepEqual(blocked.conflicts.map((item) => item.path), ['config/settings.json']);
+  assert.match(blocked.conflicts[0].reason, /floor 70 -> 80/);
+  assert.deepEqual(tree(target), before);
+
+  // Accepting the new floor is a deliberate local edit; the rest of the update then merges.
+  write(target, 'config/settings.json', read(target, 'config/settings.json').replace('"floor": 70', '"floor": 80'));
+  const accepted = update(target, { source });
+  assert.equal(accepted.applied, true);
+  assert.deepEqual(JSON.parse(read(target, 'config/settings.json')), { floor: 80, path: 'app', mode: 'local' });
+  assert.match(read(target, 'docs/rules.md'), /incoming third rule/);
+  assert.equal(JSON.parse(read(target, LOCK_PATH)).commit, incoming);
+});
+
+test('a project untouched since install also keeps its floor unless it is reviewed', (t) => {
+  const { source, target } = fixture(t, { reviewKeys: ['floor'] });
+  write(source, 'settings.json', read(source, 'settings.json').replace('"floor": 70', '"floor": 60'));
+  const incoming = commit(source, 'lower default floor');
+  assert.match(update(target, { source }).conflicts[0].reason, /floor 70 -> 60/);
+  const kept = update(target, { source, keepLocal: ['config/settings.json'] });
+  assert.equal(kept.applied, true);
+  assert.equal(JSON.parse(read(target, 'config/settings.json')).floor, 70);
+  const lock = JSON.parse(read(target, LOCK_PATH));
+  assert.equal(lock.commit, incoming);
+  assert.deepEqual(lock.keptLocal, ['config/settings.json']);
+});
+
+test('other changes to a file with reviewed keys still merge, and invalid merged JSON is refused', (t) => {
+  const { source, target } = fixture(t, { reviewKeys: ['floor', 'nested.limit'] });
+  write(source, 'settings.json', read(source, 'settings.json').replace('"path": "app"', '"path": "src"'));
+  commit(source, 'unrelated setting');
+  assert.equal(update(target, { source }).applied, true);
+  assert.equal(JSON.parse(read(target, 'config/settings.json')).path, 'src');
+
+  write(target, 'config/settings.json', read(target, 'config/settings.json').replace('"floor": 70,', '"floor": 70'));
+  write(source, 'settings.json', read(source, 'settings.json').replace('"mode": "old"', '"mode": "new"'));
+  commit(source, 'mode change against locally broken JSON');
+  const broken = update(target, { source });
+  assert.equal(broken.applied, false);
+  assert.match(broken.conflicts[0].reason, /not valid JSON/);
+});
+
+test('reviewKeys must be a nonempty list of dot paths, and the kit protects its shipped floors', () => {
+  const manifest = (reviewKeys) => () => JSON.stringify({ version: 1, files: [{ source: 'a.json', target: 'a.json', reviewKeys }] });
+  for (const bad of [[], 'floor', [''], ['a..b'], [1]]) {
+    assert.throws(() => installationFiles(manifest(bad)), /Invalid reviewKeys/, JSON.stringify(bad));
+  }
+  assert.equal(installationFiles(manifest(['dotnet.globalLine']))[0].reviewKeys[0], 'dotnet.globalLine');
+  const shipped = installationFiles((name) => readFileSync(path.join(KIT_ROOT, name), 'utf8'));
+  const keys = Object.fromEntries(shipped.filter((item) => item.reviewKeys).map((item) => [item.target, item.reviewKeys]));
+  assert.deepEqual(keys, {
+    'development-standards.json': ['dotnet.globalLine', 'dotnet.changedLine'],
+    'config/typescript-coverage.json': ['globalLine', 'globalBranch', 'changedLine'],
+  });
 });

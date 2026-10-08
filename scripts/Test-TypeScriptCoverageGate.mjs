@@ -4,7 +4,8 @@
  *
  * npm test coverage ≠ consumer contracts ≠ device smoke.
  * Union-by-file (do not sum overlapping reports). Fail closed on missing or
- * malformed reports. Thresholds: config/typescript-coverage.json.
+ * malformed reports. Thresholds: the typescript.floors file named in
+ * development-standards.json (config/typescript-coverage.json by default).
  */
 import { existsSync, globSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -147,6 +148,37 @@ export function mergeStores(stores) {
   return merged;
 }
 
+function overlayKnownHits(target, overlay) {
+  for (const [key, hits] of overlay) {
+    if (target.has(key)) addHit(target, key, hits);
+  }
+}
+
+function overlayStatementHits(target, statements) {
+  for (const [key, hits] of statements) {
+    const line = Number(String(key).split(':')[0]);
+    for (const existing of target.statements.keys()) {
+      if (Number(String(existing).split(':')[0]) === line) {
+        addHit(target.statements, existing, hits);
+      }
+    }
+  }
+}
+
+function overlayFunctionHits(target, functions) {
+  for (const [key, hits] of functions) {
+    const separator = key.indexOf(':');
+    const line = Number(key.slice(0, separator));
+    const name = key.slice(separator + 1);
+    const existing = [...target.functions.keys()].find(
+      (candidate) => candidate.endsWith(`:${name}`) || Number(candidate.slice(0, candidate.indexOf(':'))) === line,
+    );
+    if (existing) {
+      addHit(target.functions, existing, hits);
+    }
+  }
+}
+
 /**
  * Overlay Node/V8 hits onto the Jest/Istanbul coverable universe.
  * V8 emits a DA row for almost every physical line; Istanbul only instruments
@@ -167,38 +199,20 @@ export function overlayHits(base, overlay) {
     }
 
     const target = merged.get(repoPath);
-    for (const [line, hits] of coverage.lines) {
-      if (target.lines.has(line)) {
-        addHit(target.lines, line, hits);
-      }
-    }
-    for (const [key, hits] of coverage.statements) {
-      const line = Number(String(key).split(':')[0]);
-      for (const existing of target.statements.keys()) {
-        if (Number(String(existing).split(':')[0]) === line) {
-          addHit(target.statements, existing, hits);
-        }
-      }
-    }
-    for (const [key, hits] of coverage.functions) {
-      const separator = key.indexOf(':');
-      const line = Number(key.slice(0, separator));
-      const name = key.slice(separator + 1);
-      const existing = [...target.functions.keys()].find(
-        (candidate) => candidate.endsWith(`:${name}`) || Number(candidate.slice(0, candidate.indexOf(':'))) === line,
-      );
-      if (existing) {
-        addHit(target.functions, existing, hits);
-      }
-    }
-    for (const [key, hits] of coverage.branches) {
-      if (target.branches.has(key)) {
-        addHit(target.branches, key, hits);
-      }
-    }
+    overlayKnownHits(target.lines, coverage.lines);
+    overlayStatementHits(target, coverage.statements);
+    overlayFunctionHits(target, coverage.functions);
+    overlayKnownHits(target.branches, coverage.branches);
   }
 
   return merged;
+}
+
+function accumulateMetric(total, hits) {
+  for (const hit of hits) {
+    total.total += 1;
+    if (hit > 0) total.covered += 1;
+  }
 }
 
 export function summarizeStore(store, { coverableOnly = true } = {}) {
@@ -214,29 +228,8 @@ export function summarizeStore(store, { coverableOnly = true } = {}) {
       continue;
     }
 
-    for (const hits of coverage.lines.values()) {
-      totals.lines.total += 1;
-      if (hits > 0) {
-        totals.lines.covered += 1;
-      }
-    }
-    for (const hits of coverage.branches.values()) {
-      totals.branches.total += 1;
-      if (hits > 0) {
-        totals.branches.covered += 1;
-      }
-    }
-    for (const hits of coverage.functions.values()) {
-      totals.functions.total += 1;
-      if (hits > 0) {
-        totals.functions.covered += 1;
-      }
-    }
-    for (const hits of coverage.statements.values()) {
-      totals.statements.total += 1;
-      if (hits > 0) {
-        totals.statements.covered += 1;
-      }
+    for (const name of ['lines', 'branches', 'functions', 'statements']) {
+      accumulateMetric(totals[name], coverage[name].values());
     }
   }
 
@@ -269,29 +262,32 @@ export function parseLcov(contents, { sources = [], repoRoot = defaultRepoRoot }
     if (!current) {
       continue;
     }
-    if (line.startsWith('FN:')) {
-      const [fnLine, ...nameParts] = line.slice(3).split(',');
-      currentFn = `${Number(fnLine)}:${nameParts.join(',') || 'fn'}`;
-      addHit(current.functions, currentFn, 0);
-      continue;
-    }
-    if (line.startsWith('FNDA:')) {
-      const [hits, ...nameParts] = line.slice(5).split(',');
-      const name = nameParts.join(',') || 'fn';
-      const existing = [...current.functions.keys()].find((key) => key.endsWith(`:${name}`));
-      addHit(current.functions, existing ?? `0:${name}`, Number(hits));
-      continue;
-    }
-    if (line.startsWith('DA:')) {
-      const [number, hits] = line.slice(3).split(',').map(Number);
-      addHit(current.lines, number, hits);
-      addHit(current.statements, String(number), hits);
-      continue;
-    }
-    if (line.startsWith('BRDA:')) {
-      const [number, block, branch, rawHits] = line.slice(5).split(',');
-      const hits = rawHits === '-' ? 0 : Number(rawHits);
-      addHit(current.branches, `${number}:${block}:${branch}`, hits);
+    switch (line.slice(0, line.indexOf(':'))) {
+      case 'FN': {
+        const [fnLine, ...nameParts] = line.slice(3).split(',');
+        currentFn = `${Number(fnLine)}:${nameParts.join(',') || 'fn'}`;
+        addHit(current.functions, currentFn, 0);
+        break;
+      }
+      case 'FNDA': {
+        const [hits, ...nameParts] = line.slice(5).split(',');
+        const name = nameParts.join(',') || 'fn';
+        const existing = [...current.functions.keys()].find((key) => key.endsWith(`:${name}`));
+        addHit(current.functions, existing ?? `0:${name}`, Number(hits));
+        break;
+      }
+      case 'DA': {
+        const [number, hits] = line.slice(3).split(',').map(Number);
+        addHit(current.lines, number, hits);
+        addHit(current.statements, String(number), hits);
+        break;
+      }
+      case 'BRDA': {
+        const [number, block, branch, rawHits] = line.slice(5).split(',');
+        const hits = rawHits === '-' ? 0 : Number(rawHits);
+        addHit(current.branches, `${number}:${block}:${branch}`, hits);
+        break;
+      }
     }
   }
 
@@ -307,6 +303,45 @@ function decodeXml(value) {
     .replace(/&amp;/g, '&');
 }
 
+function readCoberturaMethods(block, coverage) {
+  for (const methodBlock of block.split('<method ').slice(1)) {
+    const headerEnd = methodBlock.indexOf('>');
+    const header = methodBlock.slice(0, headerEnd);
+    const name = /name="([^"]+)"/.exec(header)?.[1];
+    const hits = /hits="(\d+)"/.exec(header)?.[1];
+    const line = /<line number="(\d+)"/.exec(methodBlock)?.[1];
+    if (headerEnd !== -1 && name && hits && line) {
+      addHit(coverage.functions, `${Number(line)}:${decodeXml(name)}`, Number(hits));
+    }
+  }
+}
+
+function readCoberturaLines(block, coverage, repoPath) {
+  for (const lineBlock of block.split(/<line\s+/).slice(1)) {
+    const tagEnd = lineBlock.indexOf('/>');
+    if (tagEnd === -1) {
+      throw new Error(`Malformed Cobertura report: line tag is not closed in ${repoPath}.`);
+    }
+    const attrs = lineBlock.slice(0, tagEnd);
+    const number = Number(/number="(\d+)"/.exec(attrs)?.[1]);
+    const hits = Number(/hits="(\d+)"/.exec(attrs)?.[1]);
+    if (!Number.isFinite(number)) {
+      throw new Error(`Malformed Cobertura report: line is missing a number in ${repoPath}.`);
+    }
+    addHit(coverage.lines, number, hits);
+    addHit(coverage.statements, String(number), hits);
+
+    const condition = /condition-coverage="[^"(]*\((\d+)\/(\d+)\)"/.exec(attrs);
+    if (condition) {
+      const covered = Number(condition[1]);
+      const total = Number(condition[2]);
+      for (let index = 0; index < total; index += 1) {
+        addHit(coverage.branches, `${number}:c:${index}`, index < covered ? 1 : 0);
+      }
+    }
+  }
+}
+
 export function parseCobertura(contents, { repoRoot = defaultRepoRoot } = {}) {
   const sources = [...contents.matchAll(/<source>([^<]*)<\/source>/g)].map((match) => decodeXml(match[1]));
   const store = createStore();
@@ -320,40 +355,8 @@ export function parseCobertura(contents, { repoRoot = defaultRepoRoot } = {}) {
     const repoPath = toRepoPath(decodeXml(filenameMatch[1]), sources, repoRoot);
     const coverage = fileCoverage(store, repoPath);
 
-    for (const methodBlock of block.split('<method ').slice(1)) {
-      const headerEnd = methodBlock.indexOf('>');
-      const header = methodBlock.slice(0, headerEnd);
-      const name = /name="([^"]+)"/.exec(header)?.[1];
-      const hits = /hits="(\d+)"/.exec(header)?.[1];
-      const line = /<line number="(\d+)"/.exec(methodBlock)?.[1];
-      if (headerEnd !== -1 && name && hits && line) {
-        addHit(coverage.functions, `${Number(line)}:${decodeXml(name)}`, Number(hits));
-      }
-    }
-
-    for (const lineBlock of block.split(/<line\s+/).slice(1)) {
-      const tagEnd = lineBlock.indexOf('/>');
-      if (tagEnd === -1) {
-        throw new Error(`Malformed Cobertura report: line tag is not closed in ${repoPath}.`);
-      }
-      const attrs = lineBlock.slice(0, tagEnd);
-      const number = Number(/number="(\d+)"/.exec(attrs)?.[1]);
-      const hits = Number(/hits="(\d+)"/.exec(attrs)?.[1]);
-      if (!Number.isFinite(number)) {
-        throw new Error(`Malformed Cobertura report: line is missing a number in ${repoPath}.`);
-      }
-      addHit(coverage.lines, number, hits);
-      addHit(coverage.statements, String(number), hits);
-
-      const condition = /condition-coverage="[^"(]*\((\d+)\/(\d+)\)"/.exec(attrs);
-      if (condition) {
-        const covered = Number(condition[1]);
-        const total = Number(condition[2]);
-        for (let index = 0; index < total; index += 1) {
-          addHit(coverage.branches, `${number}:c:${index}`, index < covered ? 1 : 0);
-        }
-      }
-    }
+    readCoberturaMethods(block, coverage);
+    readCoberturaLines(block, coverage, repoPath);
   }
 
   if (store.size === 0) {
@@ -361,6 +364,38 @@ export function parseCobertura(contents, { repoRoot = defaultRepoRoot } = {}) {
   }
 
   return store;
+}
+
+function readIstanbulFile(file, coverage) {
+  const statementMap = file.statementMap ?? {};
+  const statements = file.s ?? {};
+  for (const [id, hits] of Object.entries(statements)) {
+    const loc = statementMap[id]?.start ?? {};
+    const key = `${loc.line ?? id}:${loc.column ?? 0}`;
+    addHit(coverage.statements, key, Number(hits));
+    if (Number.isFinite(loc.line)) {
+      addHit(coverage.lines, loc.line, Number(hits));
+    }
+  }
+
+  const fnMap = file.fnMap ?? {};
+  const functions = file.f ?? {};
+  for (const [id, hits] of Object.entries(functions)) {
+    const fn = fnMap[id] ?? {};
+    const line = fn.decl?.start?.line ?? fn.loc?.start?.line ?? 0;
+    addHit(coverage.functions, `${line}:${fn.name ?? id}`, Number(hits));
+  }
+
+  const branchMap = file.branchMap ?? {};
+  const branches = file.b ?? {};
+  for (const [id, hitsList] of Object.entries(branches)) {
+    const branch = branchMap[id] ?? {};
+    const line = branch.loc?.start?.line ?? branch.line ?? 0;
+    const values = Array.isArray(hitsList) ? hitsList : [hitsList];
+    values.forEach((hits, index) => {
+      addHit(coverage.branches, `${line}:${id}:${index}`, Number(hits));
+    });
+  }
 }
 
 export function parseIstanbulJson(contents, { repoRoot = defaultRepoRoot } = {}) {
@@ -383,35 +418,7 @@ export function parseIstanbulJson(contents, { repoRoot = defaultRepoRoot } = {})
     const repoPath = toRepoPath(file.path ?? filePath, [], repoRoot);
     const coverage = fileCoverage(store, repoPath);
 
-    const statementMap = file.statementMap ?? {};
-    const statements = file.s ?? {};
-    for (const [id, hits] of Object.entries(statements)) {
-      const loc = statementMap[id]?.start ?? {};
-      const key = `${loc.line ?? id}:${loc.column ?? 0}`;
-      addHit(coverage.statements, key, Number(hits));
-      if (Number.isFinite(loc.line)) {
-        addHit(coverage.lines, loc.line, Number(hits));
-      }
-    }
-
-    const fnMap = file.fnMap ?? {};
-    const functions = file.f ?? {};
-    for (const [id, hits] of Object.entries(functions)) {
-      const fn = fnMap[id] ?? {};
-      const line = fn.decl?.start?.line ?? fn.loc?.start?.line ?? 0;
-      addHit(coverage.functions, `${line}:${fn.name ?? id}`, Number(hits));
-    }
-
-    const branchMap = file.branchMap ?? {};
-    const branches = file.b ?? {};
-    for (const [id, hitsList] of Object.entries(branches)) {
-      const branch = branchMap[id] ?? {};
-      const line = branch.loc?.start?.line ?? branch.line ?? 0;
-      const values = Array.isArray(hitsList) ? hitsList : [hitsList];
-      values.forEach((hits, index) => {
-        addHit(coverage.branches, `${line}:${id}:${index}`, Number(hits));
-      });
-    }
+    readIstanbulFile(file, coverage);
   }
 
   if (store.size === 0) {
@@ -472,37 +479,10 @@ export function assertProductionFilesPresent(store, repoRoot) {
   }
 }
 
-export function getChangedLines({ repoRoot, baseRef, headRef, paths }) {
-  if (!baseRef) {
-    throw new Error('Changed-line coverage requires a base ref.');
-  }
-
-  let resolved = baseRef;
-  if (!/^origin\//.test(baseRef)) {
-    const remoteRef = `origin/${baseRef}`;
-    const probe = spawnSync('git', ['rev-parse', '--verify', '--quiet', remoteRef], { cwd: repoRoot });
-    if (probe.status === 0) {
-      resolved = remoteRef;
-    }
-  }
-
-  const available = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${resolved}^{commit}`], { cwd: repoRoot });
-  if (available.status !== 0) {
-    throw new Error(`Base ref '${baseRef}' is not available locally.`);
-  }
-
-  const diff = spawnSync(
-    'git',
-    ['diff', '--unified=0', '--no-color', `${resolved}...${headRef}`, '--', ...paths],
-    { cwd: repoRoot, encoding: 'utf8' },
-  );
-  if (diff.status !== 0) {
-    throw new Error(`Unable to calculate changed lines against '${resolved}'.`);
-  }
-
+function parseChangedDiff(contents) {
   const changed = new Map();
   let currentFile = null;
-  for (const line of diff.stdout.split(/\r?\n/)) {
+  for (const line of contents.split(/\r?\n/)) {
     const fileMatch = /^\+\+\+ b\/(.+)$/.exec(line);
     if (fileMatch) {
       currentFile = toPosix(fileMatch[1]);
@@ -525,6 +505,39 @@ export function getChangedLines({ repoRoot, baseRef, headRef, paths }) {
       lines.add(start + offset);
     }
   }
+
+  return changed;
+}
+
+export function getChangedLines({ repoRoot, baseRef, headRef, paths }) {
+  if (!baseRef) {
+    throw new Error('Changed-line coverage requires a base ref.');
+  }
+
+  let resolved = baseRef;
+  if (!baseRef.startsWith('origin/')) {
+    const remoteRef = `origin/${baseRef}`;
+    const probe = spawnSync('git', ['rev-parse', '--verify', '--quiet', remoteRef], { cwd: repoRoot });
+    if (probe.status === 0) {
+      resolved = remoteRef;
+    }
+  }
+
+  const available = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${resolved}^{commit}`], { cwd: repoRoot });
+  if (available.status !== 0) {
+    throw new Error(`Base ref '${baseRef}' is not available locally.`);
+  }
+
+  const diff = spawnSync(
+    'git',
+    ['diff', '--unified=0', '--no-color', `${resolved}...${headRef}`, '--', ...paths],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  if (diff.status !== 0) {
+    throw new Error(`Unable to calculate changed lines against '${resolved}'.`);
+  }
+
+  const changed = parseChangedDiff(diff.stdout);
 
   return { skipped: null, lines: changed, resolved };
 }
@@ -566,6 +579,19 @@ export function evaluateChangedLines(store, changedLines) {
     metric: metric({ covered, total: coverable }),
     uncovered,
   };
+}
+
+/** Floors file named by typescript.floors in development-standards.json. */
+export function configuredFloorsPath(repoRoot = defaultRepoRoot) {
+  const configPath = path.join(repoRoot, 'development-standards.json');
+  if (!existsSync(configPath)) {
+    throw new Error(`Missing development-standards.json under '${repoRoot}'.`);
+  }
+  const floors = JSON.parse(readFileSync(configPath, 'utf8')).typescript?.floors;
+  if (typeof floors !== 'string' || !floors) {
+    throw new Error('Configure typescript.floors in development-standards.json.');
+  }
+  return path.join(repoRoot, floors);
 }
 
 export function loadFloors(floorsPath) {
@@ -780,7 +806,7 @@ function parseArgs(argv) {
   const args = {
     repoRoot: defaultRepoRoot,
     reports: path.join(defaultRepoRoot, projectRoot, 'coverage'),
-    floors: path.join(defaultRepoRoot, 'config/typescript-coverage.json'),
+    floors: null,
     merged: path.join(defaultRepoRoot, projectRoot, 'coverage/merged'),
     baseRef: process.env.GITHUB_BASE_REF || 'origin/main',
     headRef: 'HEAD',
@@ -804,12 +830,10 @@ function parseArgs(argv) {
   return args;
 }
 
-export function runGate(args) {
-  const log = args.quiet ? () => {} : console.log.bind(console);
-  const logError = args.quiet ? () => {} : console.error.bind(console);
+function collectCoverageSummary(args) {
   const jestDir = path.join(args.reports, 'jest');
   const nodeDir = path.join(args.reports, 'node');
-  const floors = loadFloors(args.floors);
+  const floors = loadFloors(args.floors ?? configuredFloorsPath(args.repoRoot));
 
   const jestStore = loadSuiteReport(jestDir, 'jest', args.repoRoot);
   const nodeStore = loadSuiteReport(nodeDir, 'node', args.repoRoot);
@@ -839,6 +863,12 @@ export function runGate(args) {
     changed,
   };
 
+  return { mergedStore, summary };
+}
+
+function reportCoverageSummary(args, summary, mergedStore, log) {
+  const { changed } = summary;
+
   writeMergedReports({
     store: mergedStore,
     summary,
@@ -858,6 +888,10 @@ export function runGate(args) {
   } else {
     log(`Changed-line coverage: ${changed.metric.pct}% (${changed.metric.covered}/${changed.metric.total})`);
   }
+}
+
+function ensureCoverageFloors(summary, logError) {
+  const { changed } = summary;
 
   const failures = enforceFloors(summary);
   if (failures.length > 0) {
@@ -874,7 +908,14 @@ export function runGate(args) {
     error.summary = summary;
     throw error;
   }
+}
 
+export function runGate(args) {
+  const log = args.quiet ? () => {} : console.log.bind(console);
+  const logError = args.quiet ? () => {} : console.error.bind(console);
+  const { mergedStore, summary } = collectCoverageSummary(args);
+  reportCoverageSummary(args, summary, mergedStore, log);
+  ensureCoverageFloors(summary, logError);
   return summary;
 }
 
@@ -1062,6 +1103,37 @@ function runSelfTest() {
       });
       if (!summary.changed.skipped) {
         throw new Error('expected skip');
+      }
+    });
+
+    assert('default floors come from typescript.floors in development-standards.json', () => {
+      const configRoot = path.join(tempRoot, 'configured-repo');
+      mkdirSync(configRoot, { recursive: true });
+      let failed = false;
+      try {
+        configuredFloorsPath(configRoot);
+      } catch (error) {
+        failed = /Missing development-standards\.json/.test(error.message);
+      }
+      if (!failed) {
+        throw new Error('expected a missing project configuration to fail closed');
+      }
+      writeFileSync(path.join(configRoot, 'development-standards.json'), JSON.stringify({ version: 1, typescript: {} }));
+      failed = false;
+      try {
+        configuredFloorsPath(configRoot);
+      } catch (error) {
+        failed = /Configure typescript\.floors/.test(error.message);
+      }
+      if (!failed) {
+        throw new Error('expected a configuration without typescript.floors to fail closed');
+      }
+      writeFileSync(
+        path.join(configRoot, 'development-standards.json'),
+        JSON.stringify({ version: 1, typescript: { floors: 'config/floors.json' } }),
+      );
+      if (configuredFloorsPath(configRoot) !== path.join(configRoot, 'config/floors.json')) {
+        throw new Error('expected the configured floors path relative to the repository root');
       }
     });
 

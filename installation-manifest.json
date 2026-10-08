@@ -7,7 +7,11 @@
     },
     {
       "source": "development-standards.json",
-      "target": "development-standards.json"
+      "target": "development-standards.json",
+      "reviewKeys": [
+        "dotnet.globalLine",
+        "dotnet.changedLine"
+      ]
     },
     {
       "source": "coverlet.runsettings",
@@ -19,7 +23,12 @@
     },
     {
       "source": "config/typescript-coverage.json",
-      "target": "config/typescript-coverage.json"
+      "target": "config/typescript-coverage.json",
+      "reviewKeys": [
+        "globalLine",
+        "globalBranch",
+        "changedLine"
+      ]
     },
     {
       "source": "config/feature-map.json",

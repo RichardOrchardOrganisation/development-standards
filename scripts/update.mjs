@@ -41,6 +41,27 @@ function mergeText(base, local, incoming) {
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 
+function valueAt(document, key) {
+  return key.split('.').reduce((value, part) => (value !== null && typeof value === 'object' ? value[part] : undefined), document);
+}
+
+/** A clean text merge must still not change a project-owned JSON value, such as a coverage floor. */
+function reviewChange(current, next, keys) {
+  if (!keys?.length || current === null || next === null || normalize(current) === normalize(next)) return null;
+  let before;
+  let after;
+  try {
+    before = JSON.parse(current);
+    after = JSON.parse(next);
+  } catch {
+    return 'Merged configuration is not valid JSON; review it manually.';
+  }
+  const changed = keys.filter((key) => JSON.stringify(valueAt(before, key)) !== JSON.stringify(valueAt(after, key)));
+  if (!changed.length) return null;
+  const detail = changed.map((key) => `${key} ${JSON.stringify(valueAt(before, key)) ?? 'unset'} -> ${JSON.stringify(valueAt(after, key)) ?? 'unset'}`).join(', ');
+  return `Project-owned value would change (${detail}). Set it in the project file deliberately, or keep the local file with --keep-local.`;
+}
+
 function preserveEol(text, local) {
   const normalized = normalize(text);
   return local?.includes('\r\n') ? normalized.replaceAll('\n', '\r\n') : normalized;
@@ -82,6 +103,8 @@ export function update(target, { dryRun = false, source = KIT_ROOT, keepLocal = 
       if (!merged.conflict) merged.content = `${guide.prefix}${merged.content}${guide.suffix}`;
     } else {
       merged = mergeText(previous.files.get(name) ?? null, current, incoming.files.get(name) ?? null);
+      const reason = merged.conflict ? null : reviewChange(current, merged.content, incoming.reviewKeys.get(name));
+      if (reason) merged = { conflict: true, reason };
     }
     if (merged.conflict && overrides.has(name)) {
       actions.push({ path: name, action: 'keep-local' });

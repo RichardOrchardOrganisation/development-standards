@@ -164,6 +164,7 @@ export function installationFiles(read) {
   for (const item of manifest.files) {
     validateRelativePath(item.source);
     validateRelativePath(item.target);
+    if (item.reviewKeys !== undefined && (!Array.isArray(item.reviewKeys) || !item.reviewKeys.length || item.reviewKeys.some((key) => typeof key !== 'string' || !/^[\w$-]+(?:\.[\w$-]+)*$/.test(key)))) throw new Error(`Invalid reviewKeys for ${item.target}.`);
     const target = item.target.toLowerCase();
     if (targets.has(target) || [...targets].some((known) => target.startsWith(`${known}/`) || known.startsWith(`${target}/`))) throw new Error(`Duplicate or overlapping manifest target: ${item.target}`);
     targets.add(target);
@@ -173,16 +174,19 @@ export function installationFiles(read) {
 
 export function readInstallation(read) {
   const files = new Map();
+  // JSON values (dot paths) the project owns, such as coverage floors; updates must not change them silently.
+  const reviewKeys = new Map();
   for (const item of installationFiles(read)) {
     const content = read(item.source);
     if (content === null) throw new Error(`Missing standards source: ${item.source}`);
     files.set(item.target, content);
+    if (item.reviewKeys) reviewKeys.set(item.target, item.reviewKeys);
   }
   const fragment = read('templates/AGENTS.fragment.md');
   if (fragment === null) throw new Error('Missing AGENTS fragment.');
   const packageJson = JSON.parse(read('package.json'));
   if (typeof packageJson.version !== 'string' || !packageJson.version) throw new Error('Missing kit package version.');
-  return { files, block: managedBlock(fragment), version: packageJson.version };
+  return { files, reviewKeys, block: managedBlock(fragment), version: packageJson.version };
 }
 
 export function lockDocument(commit, version, keptLocal = []) {

@@ -8,4 +8,4 @@ When finished, commit, push, and open a PR against main using the PR template an
 
 The installed policy lives in templates/AGENTS.fragment.md; do not confuse application verification with this kit’s own checks. Template changes must preserve existing target instructions, and installation must not overwrite unrelated files.
 
-installation-manifest.json defines installed source/destination paths. Add or remove entries with installer payload changes. The updater must compare committed baseline/local/incoming content, preserve project-only guide text, reject unsafe paths, and leave the target and lock untouched on unresolved conflicts. Cover these behaviors with regression tests.
+installation-manifest.json defines installed source/destination paths. Add or remove entries with installer payload changes. The updater must compare committed baseline/local/incoming content, preserve project-only guide text, reject unsafe paths, leave the target and lock untouched on unresolved conflicts, and never change a manifest `reviewKeys` value (such as a coverage floor) without a conflict. Cover these behaviors with regression tests.

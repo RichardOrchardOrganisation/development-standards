@@ -95,7 +95,7 @@ export function isCoverableRepoPath(repoPath) {
   if (/\.test\.(ts|tsx)$/.test(posix)) {
     return false;
   }
-  if (posix.includes('/src/test/')) {
+  if (posix.startsWith(`${projectPrefix}src/test/`)) {
     return false;
   }
   return true;
@@ -936,6 +936,8 @@ export function runGate(args) {
 }
 
 function runSelfTest() {
+  // Fixtures follow the configured project, so the self-test passes in any consuming repository.
+  const sourceRoot = projectPrefix ? `/repo/${projectRoot}` : '/repo';
   const tempRoot = path.join(defaultRepoRoot, '.standards-test-tmp');
   rmSync(tempRoot, { recursive: true, force: true });
   mkdirSync(tempRoot, { recursive: true });
@@ -955,9 +957,9 @@ function runSelfTest() {
     assert('posix and windows paths normalize', () => {
       const a = toRepoPath('src/api/client.ts');
       const b = toRepoPath('src\\api\\client.ts');
-      const c = toRepoPath('C:/repo/app/src/api/client.ts', [], 'C:/repo');
-      const d = toRepoPath('/workspace/app/src/api/client.ts', [], '/workspace');
-      if (a !== 'app/src/api/client.ts') {
+      const c = toRepoPath(`C:/repo/${projectPrefix}src/api/client.ts`, [], 'C:/repo');
+      const d = toRepoPath(`/workspace/${projectPrefix}src/api/client.ts`, [], '/workspace');
+      if (a !== `${projectPrefix}src/api/client.ts`) {
         throw new Error(a);
       }
       if (b !== a || c !== a || d !== a) {
@@ -966,23 +968,23 @@ function runSelfTest() {
     });
 
     assert('exclusions stay narrow', () => {
-      if (isCoverableRepoPath('app/src/screens/home/HomeScreen.tsx') !== true) {
+      if (isCoverableRepoPath(`${projectPrefix}src/screens/home/HomeScreen.tsx`) !== true) {
         throw new Error('screens must stay coverable');
       }
-      if (isCoverableRepoPath('app/src/api/client.test.tsx')) {
+      if (isCoverableRepoPath(`${projectPrefix}src/api/client.test.tsx`)) {
         throw new Error('tests must be excluded');
       }
-      if (isCoverableRepoPath('app/src/test/fixtures.ts')) {
+      if (isCoverableRepoPath(`${projectPrefix}src/test/fixtures.ts`)) {
         throw new Error('fixtures must be excluded');
       }
-      if (isCoverableRepoPath('app/contracts/consumer.test.ts')) {
+      if (isCoverableRepoPath(`${projectPrefix}contracts/consumer.test.ts`)) {
         throw new Error('contracts must stay out');
       }
     });
 
     assert('union does not double-count overlapping lines', () => {
       const lcov = parseLcov('TN:\nSF:src/api/text.ts\nDA:2,1\nDA:3,0\nend_of_record\n');
-      const cobertura = parseCobertura(`<?xml version="1.0"?><coverage><sources><source>/repo/app</source></sources><packages><package><classes><class filename="src/api/text.ts"><lines><line number="2" hits="4"/><line number="4" hits="0"/></lines></class></classes></package></packages></coverage>`);
+      const cobertura = parseCobertura(`<?xml version="1.0"?><coverage><sources><source>${sourceRoot}</source></sources><packages><package><classes><class filename="src/api/text.ts"><lines><line number="2" hits="4"/><line number="4" hits="0"/></lines></class></classes></package></packages></coverage>`);
       const merged = mergeStores([lcov, cobertura]);
       const summary = summarizeStore(merged, { coverableOnly: false });
       if (summary.lines.total !== 3 || summary.lines.covered !== 1) {
@@ -995,14 +997,14 @@ function runSelfTest() {
         '<method name="first" hits="2"><lines><line number="4" hits="2"/></lines></method>' +
         '<method name="second" hits="0"><lines><line number="9" hits="0"/></lines></method>' +
         '</methods></class></coverage>');
-      const functions = report.get('app/src/api/text.ts')?.functions;
+      const functions = report.get(`${projectPrefix}src/api/text.ts`)?.functions;
       if (functions?.get('4:first') !== 2 || functions?.get('9:second') !== 0) {
         throw new Error(JSON.stringify([...functions || []]));
       }
     });
 
     assert('overlay keeps the Jest coverable universe', () => {
-      const jest = parseCobertura(`<?xml version="1.0"?><coverage><sources><source>/repo/app</source></sources><packages><package><classes><class filename="src/api/text.ts"><lines><line number="2" hits="0"/><line number="3" hits="0"/></lines></class></classes></package></packages></coverage>`);
+      const jest = parseCobertura(`<?xml version="1.0"?><coverage><sources><source>${sourceRoot}</source></sources><packages><package><classes><class filename="src/api/text.ts"><lines><line number="2" hits="0"/><line number="3" hits="0"/></lines></class></classes></package></packages></coverage>`);
       const node = parseLcov('TN:\nSF:src/api/text.ts\nDA:2,3\nDA:3,0\nDA:40,1\nend_of_record\n');
       const merged = overlayHits(jest, node);
       const summary = summarizeStore(merged, { coverableOnly: false });
@@ -1045,8 +1047,8 @@ function runSelfTest() {
     writeFileSync(
       path.join(jestDir, 'coverage-final.json'),
       JSON.stringify({
-        '/tmp/fixture/app/src/api/text.ts': {
-          path: '/tmp/fixture/app/src/api/text.ts',
+        [`/tmp/fixture/${projectPrefix}src/api/text.ts`]: {
+          path: `/tmp/fixture/${projectPrefix}src/api/text.ts`,
           statementMap: { 0: { start: { line: 2, column: 0 } }, 1: { start: { line: 3, column: 0 } } },
           s: { 0: 1, 1: 0 },
           fnMap: { 0: { name: 'toPlainText', decl: { start: { line: 2 } } } },
@@ -1096,7 +1098,7 @@ function runSelfTest() {
           floors: path.join(tempRoot, 'floors-high.json'),
           merged: path.join(tempRoot, 'merged-fail'),
           skipProductionCheck: true,
-          changedLines: new Map([['app/src/api/text.ts', new Set([3])]]),
+          changedLines: new Map([[`${projectPrefix}src/api/text.ts`, new Set([3])]]),
           quiet: true,
         });
       } catch (error) {

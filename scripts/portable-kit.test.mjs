@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { install } from './install.mjs';
 import { checkMap } from './check-feature-map.mjs';
-import { evaluate } from './check-pr-verification.mjs';
+import { checkPullRequestVerification, evaluate } from './check-pr-verification.mjs';
 import { getChangedLines } from './Test-TypeScriptCoverageGate.mjs';
 function temporary(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'standards-test-'));
@@ -125,4 +125,56 @@ test('configured TypeScript projects merge reports, reject uncovered changes, an
     assert.notEqual(missing.status, 0);
     assert.match(missing.stdout + missing.stderr, /missing 1 production file/);
   }
+});
+
+function prProject(t) {
+  const root = temporary(t);
+  mkdirSync(path.join(root, 'config'));
+  mkdirSync(path.join(root, 'ui'));
+  writeFileSync(path.join(root, 'ui/Home.tsx'), 'export default function Home() {}');
+  writeFileSync(path.join(root, 'development-standards.json'), JSON.stringify({ uiPaths: ['ui/'] }));
+  writeFileSync(path.join(root, 'config/feature-map.json'), JSON.stringify({ features: [{ id: 'home', sources: ['ui/Home.tsx'], command: 'capture home', platform: 'browser' }] }));
+  return root;
+}
+function fakeActions({ files, labels = [], login = 'dev', body = '', labelExists = true }) {
+  const calls = [];
+  const failures = [];
+  const github = {
+    paginate: async (method, params) => { calls.push(['listFiles', params.pull_number]); return files.map((filename) => ({ filename })); },
+    rest: {
+      pulls: { listFiles: () => {} },
+      issues: {
+        getLabel: async () => { if (!labelExists) throw Object.assign(new Error('missing'), { status: 404 }); return {}; },
+        createLabel: async ({ name }) => calls.push(['createLabel', name]),
+        addLabels: async ({ labels: added }) => calls.push(['addLabels', ...added]),
+        removeLabel: async ({ name }) => calls.push(['removeLabel', name]),
+      },
+    },
+  };
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 3, body, user: { login }, labels: labels.map((name) => ({ name })) } } };
+  return { github, context, core: { info: () => {}, setFailed: (message) => failures.push(message) }, calls, failures };
+}
+test('Actions entry point fails a UI PR without proof and only labels when asked', async (t) => {
+  const root = prProject(t);
+  const readOnly = fakeActions({ files: ['ui/Home.tsx'] });
+  assert.equal((await checkPullRequestVerification({ ...readOnly, root })).ok, false);
+  assert.equal(readOnly.failures.length, 1);
+  assert.deepEqual(readOnly.calls, [['listFiles', 3]]);
+  const labelled = fakeActions({ files: ['ui/Home.tsx'], labelExists: false });
+  await checkPullRequestVerification({ ...labelled, root, label: true });
+  assert.deepEqual(labelled.calls, [['listFiles', 3], ['createLabel', 'needs-verification'], ['addLabels', 'needs-verification']]);
+});
+test('Actions entry point passes proof, clears a stale label, and exempts Dependabot', async (t) => {
+  const root = prProject(t);
+  const body = '## Verification\nhome\nCommand: capture home\nPlatform: browser\nResult: passed\nProof: artifacts/proof/home.png\n';
+  const fixed = fakeActions({ files: ['ui/Home.tsx'], labels: ['needs-verification'], body });
+  assert.equal((await checkPullRequestVerification({ ...fixed, root, label: true })).ok, true);
+  assert.deepEqual(fixed.calls, [['listFiles', 3], ['removeLabel', 'needs-verification']]);
+  assert.deepEqual(fixed.failures, []);
+  const bot = fakeActions({ files: ['ui/Home.tsx'], login: 'dependabot[bot]' });
+  assert.equal((await checkPullRequestVerification({ ...bot, root, label: true })).skipped, true);
+  assert.deepEqual(bot.calls, []);
+  const none = fakeActions({ files: [] });
+  none.context.payload = {};
+  assert.equal((await checkPullRequestVerification({ ...none, root })).skipped, true);
 });

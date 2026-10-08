@@ -13,8 +13,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const defaultRepoRoot = process.cwd();
-const projectRoot = (process.env.STANDARDS_TS_PROJECT || 'app').replaceAll('\\', '/').replace(/\/$/, '');
+// The kit installs this script in <repo>/scripts, so it finds its repository from any working directory.
+const defaultRepoRoot = path.resolve(scriptDir, '..');
+
+/** STANDARDS_TS_PROJECT, else typescript.projectRoot in development-standards.json, else app. */
+export function resolveProjectRoot(repoRoot = defaultRepoRoot, env = process.env) {
+  let configured = env.STANDARDS_TS_PROJECT || undefined;
+  if (configured === undefined) {
+    const configPath = path.join(repoRoot, 'development-standards.json');
+    configured = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')).typescript?.projectRoot : undefined;
+  }
+  const value = configured ?? 'app';
+  if (typeof value !== 'string' || !value || path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) {
+    throw new Error(`Invalid TypeScript project root: ${JSON.stringify(value)}.`);
+  }
+  return value.replaceAll('\\', '/').replace(/\/$/, '');
+}
+
+const projectRoot = resolveProjectRoot();
 const projectPrefix = projectRoot === '.' ? '' : `${projectRoot}/`;
 
 export const COVERABLE_GLOB = `${projectPrefix}src/**/*.{ts,tsx}`;
@@ -469,7 +485,7 @@ export function listCoverableProductionFiles(repoRoot) {
 
 export function assertProductionFilesPresent(store, repoRoot) {
   const production = listCoverableProductionFiles(repoRoot);
-  if (!production.length) throw new Error('No production TypeScript files found; check STANDARDS_TS_PROJECT.');
+  if (!production.length) throw new Error('No production TypeScript files found; check typescript.projectRoot (or STANDARDS_TS_PROJECT).');
   const missing = production.filter((repoPath) => !store.has(repoPath));
   if (missing.length > 0) {
     const sample = missing.slice(0, 20).join('\n  ');

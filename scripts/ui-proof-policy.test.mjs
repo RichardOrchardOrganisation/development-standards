@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateProof, visibleMarkdown } from './ui-proof-policy.mjs';
+import { evaluateProof, visibleMarkdown, findFeatureIds } from './ui-proof-policy.mjs';
 import { loadProofConfig } from './ui-proof-config.mjs';
 import { resolveProofPython } from './ui-proof-evidence.mjs';
 
@@ -31,4 +31,8 @@ test('hidden and unclosed text cannot waive missing proof', () => {
 test('portable configuration loads producer mappings and executable overrides cannot use PATH', () => {
   assert.equal(loadProofConfig('.').producers['.github/workflows/ci.yml'].browser['browser-tests'], 'Browser tests');
   assert.throws(() => resolveProofPython({ STANDARDS_PYTHON: 'python3' }), /absolute/);
+});
+
+test('feature identifiers are returned in explicit text order', () => {
+  assert.deepEqual(findFeatureIds('web-2 web-10 web-1', ['web-2', 'web-1', 'web-10']), ['web-1', 'web-10', 'web-2']);
 });

@@ -2,6 +2,18 @@
 
 Each release is a Git tag (`vX.Y.Z`) on `main`. Consuming projects pin the tagged commit with `scripts/update.mjs`; see [docs/updating.md](docs/updating.md). The version in `package.json` is recorded in each project's `development-standards.lock.json`.
 
+## 0.5.0
+
+UI evidence enforcement and publication are shared, configurable tools.
+
+- Validate uploaded PNG and TRX/JUnit evidence, current heads, producer jobs/attempts and artifact expiry.
+- Enforce explicit waivers; local paths, arbitrary links and Not verified no longer pass. Dependabot has no evidence exemption.
+- Publish PR artifact links from trusted default-branch code and refresh only the configured required gate.
+- Handle squash merge queues and preserve project-specific feature maps through a small adapter.
+- Install the policy, archive tooling and workflow examples as managed files. Producers, platforms, job names and base branches are project configuration.
+
+Upgrading: configure `uiProof`, capture/upload evidence, and wire the required check as described in docs/verification.md. Active workflows are never changed by the updater. The optional label-mutation API has been removed; the gate is read-only.
+
 ## 0.4.0
 
 The TypeScript coverage gate works in any project layout without per-call configuration.

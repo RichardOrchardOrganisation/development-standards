@@ -10,7 +10,11 @@
       "target": "development-standards.json",
       "reviewKeys": [
         "dotnet.globalLine",
-        "dotnet.changedLine"
+        "dotnet.changedLine",
+        "uiProof.baseBranch",
+        "uiProof.ciWorkflow",
+        "uiProof.gateJob",
+        "uiProof.producers"
       ]
     },
     {
@@ -101,6 +105,34 @@
     {
       "source": "docs/updating.md",
       "target": "docs/updating.md"
+    },
+    {
+      "source": "scripts/ui-proof-policy.mjs",
+      "target": "scripts/ui-proof-policy.mjs"
+    },
+    {
+      "source": "scripts/ui-proof-config.mjs",
+      "target": "scripts/ui-proof-config.mjs"
+    },
+    {
+      "source": "scripts/ui-proof-evidence.mjs",
+      "target": "scripts/ui-proof-evidence.mjs"
+    },
+    {
+      "source": "scripts/ui-proof-gate.mjs",
+      "target": "scripts/ui-proof-gate.mjs"
+    },
+    {
+      "source": "scripts/refresh-ui-proof.mjs",
+      "target": "scripts/refresh-ui-proof.mjs"
+    },
+    {
+      "source": "scripts/ui_proof_archive.py",
+      "target": "scripts/ui_proof_archive.py"
+    },
+    {
+      "source": "examples/consumer-proof-publisher.yml",
+      "target": "examples/development-standards-proof-publisher.yml"
     }
   ]
 }

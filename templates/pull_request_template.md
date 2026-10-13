@@ -21,7 +21,7 @@ For UI changes, include affected feature-map IDs and:
 Command:
 Platform:
 Result:
-Proof link:
+Uploaded artifact links for current commit:
 
-If unavailable: Not verified: <check and reason>
+Not verified: <check and reason; disclosure does not waive the required evidence gate>
 If opting out with no-ui-verification: Verification-skip-reason: <reason>

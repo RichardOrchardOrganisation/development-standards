@@ -1,0 +1,16 @@
+name: Publish uploaded UI proof
+description: Link verified current-commit artifacts using pinned shared code and default-branch configuration.
+runs:
+  using: composite
+  steps:
+    - name: Read trusted configuration and publish evidence
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        STANDARDS_ACTION_ROOT: ${{ github.action_path }}/../..
+      with:
+        script: |
+          const path = require('node:path');
+          const { pathToFileURL } = require('node:url');
+          const root = path.resolve(process.env.STANDARDS_ACTION_ROOT);
+          const { publishConfiguredProof } = await import(pathToFileURL(path.join(root, 'scripts/publish-configured-proof.mjs')).href);
+          await publishConfiguredProof({ github, context, core, root });

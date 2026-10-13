@@ -11,5 +11,17 @@
     "reports": "app/coverage",
     "floors": "config/typescript-coverage.json"
   },
-  "uiPaths": []
+  "uiPaths": [],
+  "uiProof": {
+    "baseBranch": "main",
+    "ciWorkflow": ".github/workflows/ci.yml",
+    "gateJob": "ui-proof",
+    "producers": {
+      ".github/workflows/ci.yml": {
+        "browser": {
+          "browser-tests": "Browser tests"
+        }
+      }
+    }
+  }
 }

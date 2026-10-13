@@ -4,3 +4,5 @@ coverage-report/
 coverage/
 .standards-test-tmp/
 .DS_Store
+
+__pycache__/

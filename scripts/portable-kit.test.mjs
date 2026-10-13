@@ -59,16 +59,18 @@ test('feature map fails for missing coverage, stale paths, and duplicate IDs', (
   assert.throws(() => checkMap(root), /Missing feature/);
 });
 const input = { config: { uiPaths: ['ui/'] }, features: [{ id: 'home', sources: ['ui/Home.tsx'] }], files: ['ui/Home.tsx'] };
-test('UI PR proof requires affected IDs and evidence fields; skipped checks must be explicit', () => {
-  const body = '## Verification\nhome\nCommand: capture home\nPlatform: browser\nResult: passed\nProof: artifacts/proof/home.png\n';
-  assert.equal(evaluate({ ...input, body }).ok, true);
-  assert.equal(evaluate({ ...input, body: body.replaceAll('home', 'home-other') }).ok, false);
-  assert.equal(evaluate({ ...input, body: body.replace('Platform: browser', '') }).ok, false);
-  assert.equal(evaluate({ ...input, body: body.replace('Command: capture home', 'Command:') }).ok, false);
-  assert.equal(evaluate({ ...input, body: '## Verification\nhome\nNot verified: emulator unavailable\n' }).ok, true);
-  assert.equal(evaluate({ ...input, labels: ['no-ui-verification'] }).ok, false);
-  assert.equal(evaluate({ ...input, labels: ['no-ui-verification'], body: 'Verification-skip-reason: token-only change' }).ok, true);
-  assert.equal(evaluate({ ...input, files: ['docs/guide.md'] }).ok, true);
+test('UI PR proof requires uploaded evidence and explicit waivers', () => {
+  const body = '## Verification\nhome\n';
+  const configured = { ...input, features: [{ ...input.features[0], platform: 'browser' }], headSha: 'a'.repeat(40) };
+  const evidence = [{ feature: 'home', platform: 'browser', headSha: configured.headSha, url: 'https://github.com/o/r/actions/runs/1/artifacts/2' }];
+  assert.equal(evaluate({ ...configured, body, evidence }).ok, true);
+  assert.equal(evaluate({ ...configured, body: body.replace('home', 'home-other'), evidence }).ok, false);
+  for (const extra of ['Proof: artifacts/proof/home.png', 'Not verified: no browser']) {
+    assert.equal(evaluate({ ...configured, body: body + extra }).ok, false);
+  }
+  assert.equal(evaluate({ ...configured, labels: ['no-ui-verification'] }).ok, false);
+  assert.equal(evaluate({ ...configured, labels: ['no-ui-verification'], body: 'Verification-skip-reason: reviewed change' }).ok, true);
+  assert.equal(evaluate({ ...configured, files: ['docs/guide.md'] }).ok, true);
 });
 test('TypeScript gate fails closed for a missing base and nonexistent SHA', (t) => {
   const root = temporary(t);
@@ -155,28 +157,17 @@ function fakeActions({ files, labels = [], login = 'dev', body = '', labelExists
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 3, body, user: { login }, labels: labels.map((name) => ({ name })) } } };
   return { github, context, core: { info: () => {}, setFailed: (message) => failures.push(message) }, calls, failures };
 }
-test('Actions entry point fails a UI PR without proof and only labels when asked', async (t) => {
+test('Actions entry point is read-only and does not exempt Dependabot', async (t) => {
   const root = prProject(t);
-  const readOnly = fakeActions({ files: ['ui/Home.tsx'] });
-  assert.equal((await checkPullRequestVerification({ ...readOnly, root })).ok, false);
-  assert.equal(readOnly.failures.length, 1);
-  assert.deepEqual(readOnly.calls, [['listFiles', 3]]);
-  const labelled = fakeActions({ files: ['ui/Home.tsx'], labelExists: false });
-  await checkPullRequestVerification({ ...labelled, root, label: true });
-  assert.deepEqual(labelled.calls, [['listFiles', 3], ['createLabel', 'needs-verification'], ['addLabels', 'needs-verification']]);
-});
-test('Actions entry point passes proof, clears a stale label, and exempts Dependabot', async (t) => {
-  const root = prProject(t);
-  const body = '## Verification\nhome\nCommand: capture home\nPlatform: browser\nResult: passed\nProof: artifacts/proof/home.png\n';
-  const fixed = fakeActions({ files: ['ui/Home.tsx'], labels: ['needs-verification'], body });
-  assert.equal((await checkPullRequestVerification({ ...fixed, root, label: true })).ok, true);
-  assert.deepEqual(fixed.calls, [['listFiles', 3], ['removeLabel', 'needs-verification']]);
-  assert.deepEqual(fixed.failures, []);
-  const bot = fakeActions({ files: ['ui/Home.tsx'], login: 'dependabot[bot]' });
-  assert.equal((await checkPullRequestVerification({ ...bot, root, label: true })).skipped, true);
-  assert.deepEqual(bot.calls, []);
-  const none = fakeActions({ files: [] });
-  none.context.payload = {};
+  for (const login of ['dev', 'dependabot[bot]']) {
+    const fake = fakeActions({ files: ['ui/Home.tsx'], login });
+    assert.equal((await checkPullRequestVerification({ ...fake, root })).ok, false);
+    assert.deepEqual(fake.calls, [['listFiles', 3]]);
+  }
+  const waived = fakeActions({ files: ['ui/Home.tsx'], labels: ['no-ui-verification'], body: 'Verification-skip-reason: reviewed change' });
+  assert.equal((await checkPullRequestVerification({ ...waived, root })).ok, true);
+  assert.deepEqual(waived.calls, [['listFiles', 3]]);
+  const none = fakeActions({ files: [] }); none.context.payload = {};
   assert.equal((await checkPullRequestVerification({ ...none, root })).skipped, true);
 });
 

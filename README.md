@@ -121,3 +121,7 @@ Kit CI runs these checks on Linux, macOS, and Windows. No production database, s
 Source: [QueenZone.Modern](https://github.com/RichardOrchardOrganisation/QueenZone.Modern), extracted 2026-10-05. See [provenance](docs/provenance.md). The [MIT license](LICENSE) and original copyright are retained.
 
 QueenZone’s database names, deployment configuration, runner names, application fixtures, and architectural choices remain specific to QueenZone.
+
+### Uploaded UI evidence
+
+The kit provides current-commit evidence enforcement, archive validation and PR-link publication. Configure producers in `development-standards.json` and adapt the workflow examples; see [verification](docs/verification.md). Project capture commands and richer feature-map adapters remain local. Python 3 is required for PNG/TRX/JUnit archive validation; no Python packages are needed.

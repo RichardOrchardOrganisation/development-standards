@@ -339,7 +339,25 @@ test('reviewKeys must be a nonempty list of dot paths, and the kit protects its 
   const shipped = installationFiles((name) => readFileSync(path.join(KIT_ROOT, name), 'utf8'));
   const keys = Object.fromEntries(shipped.filter((item) => item.reviewKeys).map((item) => [item.target, item.reviewKeys]));
   assert.deepEqual(keys, {
-    'development-standards.json': ['dotnet.globalLine', 'dotnet.changedLine'],
+    'development-standards.json': ['dotnet.globalLine', 'dotnet.changedLine', 'uiProof.baseBranch', 'uiProof.ciWorkflow', 'uiProof.gateJob', 'uiProof.producers'],
     'config/typescript-coverage.json': ['globalLine', 'globalBranch', 'changedLine'],
   });
+});
+
+test('project producer trust configuration cannot change silently', (t) => {
+  const { source, target } = fixture(t, { reviewKeys: ['uiProof.producers'] });
+  const initial = JSON.parse(read(source, 'settings.json'));
+  initial.uiProof = { producers: { 'ci.yml': { browser: { capture: 'Trusted capture' } } } };
+  write(source, 'settings.json', JSON.stringify(initial, null, 2));
+  write(target, 'config/settings.json', JSON.stringify(initial, null, 2));
+  commit(source, 'initial proof policy');
+  assert.equal(update(target, { source }).applied, true);
+  initial.uiProof.producers['other.yml'] = { browser: { other: 'Other capture' } };
+  write(source, 'settings.json', JSON.stringify(initial, null, 2));
+  commit(source, 'expand producer trust');
+  const before = tree(target);
+  const result = update(target, { source });
+  assert.equal(result.applied, false);
+  assert.match(result.conflicts[0].reason, /uiProof.producers/);
+  assert.deepEqual(tree(target), before);
 });

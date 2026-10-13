@@ -2,6 +2,11 @@
 
 Each release is a Git tag (`vX.Y.Z`) on `main`. Consuming projects pin the tagged commit with `scripts/update.mjs`; see [docs/updating.md](docs/updating.md). The version in `package.json` is recorded in each project's `development-standards.lock.json`.
 
+## 0.5.2
+
+- Preserve the GitHub Context repository getter when checking PR and merge-queue evidence.
+- Use an explicit text comparator for feature identifiers.
+
 ## 0.5.1
 
 - Provide a pinned reusable `actions/publish-ui-proof` action. Privileged workflows read only default-branch JSON configuration and never check out application code.

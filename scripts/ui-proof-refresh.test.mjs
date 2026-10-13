@@ -111,3 +111,25 @@ test('every PR in a squash merge group is checked', async () => {
   await checkEvidenceGate({ ...f, producerResult: 'success' });
   assert.match(f.calls[0][1], /missing a ## Verification section/);
 });
+
+ test('GitHub Context prototype repo getter survives PR and queue adaptation', async () => {
+  for (const payload of [{ pull_request: { number: 7, head: { sha } } },
+    { merge_group: { base_sha: 'b'.repeat(40), head_sha: 'c'.repeat(40) } }]) {
+    const f = fixture(payload);
+    f.context = Object.assign(Object.create({ get repo() { return { owner: 'o', repo: 'r' }; } }), { payload });
+    f.values.files = [];
+    let inspected = false;
+    const paginate = f.github.paginate;
+    f.github.paginate = async (method, args) => {
+      if (method !== 'files') return paginate(method, args);
+      assert.equal(method, 'files');
+      assert.equal(args.owner, 'o');
+      assert.equal(args.repo, 'r');
+      inspected = true;
+      return [];
+    };
+    await checkEvidenceGate({ ...f, producerResult: 'success' });
+    assert.equal(inspected, true);
+    assert.deepEqual(f.calls, []);
+  }
+});

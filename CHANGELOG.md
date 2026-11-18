@@ -2,6 +2,16 @@
 
 Each release is a Git tag (`vX.Y.Z`) on `main`. Consuming projects pin the tagged commit with `scripts/update.mjs`; see [docs/updating.md](docs/updating.md). The version in `package.json` is recorded in each project's `development-standards.lock.json`.
 
+## 0.6.0
+
+- Add property-test guidance (CsCheck and fast-check, fixed seeds) and a differential contract rule (#23).
+- Install empty v1 review rules, the base-branch checklist checker, and an opt-in consumer workflow example.
+- Keep guarded paths visible after renames and emit an empty JSON result when no checklist items match.
+- Fix the property-test guidance reference in the installed agent fragment.
+- Require Node >=24.8 for stable glob matching.
+
+Upgrading: add project rules to `config/review-checklist.json` and copy/adapt the checklist example to enable it. The kit leaves active workflows untouched.
+
 ## 0.5.2
 
 - Preserve the GitHub Context repository getter when checking PR and merge-queue evidence.

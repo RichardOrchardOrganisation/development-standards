@@ -39,6 +39,10 @@
       "target": "config/feature-map.json"
     },
     {
+      "source": "config/review-checklist.json",
+      "target": "config/review-checklist.json"
+    },
+    {
       "source": "scripts/Test-CoverageGate.ps1",
       "target": "scripts/Test-CoverageGate.ps1"
     },
@@ -61,6 +65,10 @@
     {
       "source": "scripts/check-pr-verification.mjs",
       "target": "scripts/check-pr-verification.mjs"
+    },
+    {
+      "source": "scripts/review-checklist.mjs",
+      "target": "scripts/review-checklist.mjs"
     },
     {
       "source": "scripts/verify.mjs",
@@ -101,6 +109,10 @@
     {
       "source": "examples/consumer-pr-verification.yml",
       "target": "examples/development-standards-pr-verification.yml"
+    },
+    {
+      "source": "examples/consumer-review-checklist.yml",
+      "target": "examples/development-standards-review-checklist.yml"
     },
     {
       "source": "docs/updating.md",

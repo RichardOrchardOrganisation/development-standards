@@ -1,10 +1,10 @@
 {
   "name": "development-standards",
   "private": true,
-  "version": "0.5.2",
+  "version": "0.6.0",
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.8"
   },
   "scripts": {
     "test": "node --test scripts/*.test.mjs",

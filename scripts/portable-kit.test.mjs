@@ -22,6 +22,9 @@ test('installer dry-run leaves project unchanged; install preserves guide and li
   assert.ok(install(root, { dryRun: true }).length > 10);
   assert.equal(existsSync(path.join(root, 'scripts')), false);
   install(root);
+  assert.equal(readFileSync(path.join(root, 'config/review-checklist.json'), 'utf8'), '{\n  "version": 1,\n  "items": []\n}\n');
+  assert.ok(existsSync(path.join(root, 'scripts/review-checklist.mjs')));
+  assert.ok(existsSync(path.join(root, 'examples/development-standards-review-checklist.yml')));
   assert.match(readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /^# Local architecture/);
   assert.equal(readFileSync(path.join(root, 'LICENSE'), 'utf8'), 'Project license\n');
   assert.ok(JSON.parse(readFileSync(path.join(root, 'development-standards.lock.json'), 'utf8')).commit);

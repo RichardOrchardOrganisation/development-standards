@@ -82,7 +82,7 @@ function matchedItem(item, files) {
 
 export function run({ base, rules = 'config/review-checklist.json' }, cwd = process.cwd(), today = new Date().toISOString().slice(0, 10)) {
   const commit = git(cwd, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`]).trim();
-  const files = git(cwd, ['diff', '--name-only', '-z', `${commit}...HEAD`]).split('\0').filter(Boolean).map(normalize).sort();
+  const files = git(cwd, ['diff', '--name-only', '--no-renames', '-z', `${commit}...HEAD`]).split('\0').filter(Boolean).map(normalize).sort();
   const result = { items: [], stale: [] };
   const items = baseRules(cwd, commit, rules).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   for (const item of items) {
@@ -105,7 +105,7 @@ export function main(args = process.argv.slice(2), cwd = process.cwd()) {
   try {
     const options = parse(args);
     const result = run(options, cwd);
-    if (result.items.length || result.stale.length) console.log(options.format === 'json' ? JSON.stringify(result, null, 2) : markdown(result));
+    if (options.format === 'json' || result.items.length || result.stale.length) console.log(options.format === 'json' ? JSON.stringify(result, null, 2) : markdown(result));
     return 0;
   } catch (error) {
     console.error(error.message);

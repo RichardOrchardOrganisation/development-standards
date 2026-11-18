@@ -51,7 +51,7 @@ test('CLI uses base rules despite committed and uncommitted head rule edits', (t
   assert.match(md.stdout, /src\/Foo.cs/);
 });
 
-test('missing base rules, empty rules, and unmatched files produce empty output', (t) => {
+test('missing base rules, empty rules, and unmatched files produce empty results', (t) => {
   const cases = [
     [null, { [rulesPath]: fixture('active'), 'src/Foo.cs': 'changed' }],
     [fixture('empty'), { 'src/Foo.cs': 'changed' }],
@@ -63,9 +63,21 @@ test('missing base rules, empty rules, and unmatched files produce empty output'
     for (const format of ['md', 'json']) {
       const output = cli(root, '--base', base, '--format', format);
       assert.equal(output.status, 0, output.stderr);
-      assert.equal(output.stdout.trim(), '');
+      if (format === 'json') assert.deepEqual(JSON.parse(output.stdout), { items: [], stale: [] });
+      else assert.equal(output.stdout, '');
     }
   }
+});
+
+test('moving a file out of a guarded path still fires the checklist item', (t) => {
+  const { root } = repository(t);
+  const base = git(root, 'rev-parse', 'HEAD');
+  git(root, 'mv', 'src/Foo.cs', 'Foo.cs');
+  commit(root);
+  const output = cli(root, '--base', base, '--format', 'json');
+  assert.equal(output.status, 0, output.stderr);
+  const expected = JSON.parse(fixture('active')).items[0];
+  assert.deepEqual(JSON.parse(output.stdout), { items: [{ ...expected, files: ['src/Foo.cs'] }], stale: [] });
 });
 
 test('normalized Windows and Git paths match on every OS', () => {

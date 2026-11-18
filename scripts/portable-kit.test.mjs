@@ -24,6 +24,7 @@ test('installer dry-run leaves project unchanged; install preserves guide and li
   install(root);
   assert.equal(readFileSync(path.join(root, 'config/review-checklist.json'), 'utf8'), '{\n  "version": 1,\n  "items": []\n}\n');
   assert.ok(existsSync(path.join(root, 'scripts/review-checklist.mjs')));
+  assert.ok(existsSync(path.join(root, 'scripts/lib/git-executable.mjs')));
   assert.ok(existsSync(path.join(root, 'examples/development-standards-review-checklist.yml')));
   assert.match(readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /^# Local architecture/);
   assert.equal(readFileSync(path.join(root, 'LICENSE'), 'utf8'), 'Project license\n');
@@ -188,7 +189,8 @@ test('TypeScript project root comes from the environment, then typescript.projec
 
 test('an installed TypeScript gate reads its project from the configuration in any working directory', (t) => {
   const root = temporary(t);
-  mkdirSync(path.join(root, 'scripts'));
+  mkdirSync(path.join(root, 'scripts/lib'), { recursive: true });
+  copyFileSync(path.resolve('scripts/lib/git-executable.mjs'), path.join(root, 'scripts/lib/git-executable.mjs'));
   copyFileSync(path.resolve('scripts/Test-TypeScriptCoverageGate.mjs'), path.join(root, 'scripts/Test-TypeScriptCoverageGate.mjs'));
   writeFileSync(path.join(root, 'development-standards.json'), JSON.stringify({ version: 1, typescript: { projectRoot: 'clients/mobile' } }));
   const projectDir = path.join(root, 'clients/mobile');

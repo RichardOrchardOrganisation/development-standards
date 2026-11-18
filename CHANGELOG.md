@@ -2,10 +2,16 @@
 
 Each release is a Git tag (`vX.Y.Z`) on `main`. Consuming projects pin the tagged commit with `scripts/update.mjs`; see [docs/updating.md](docs/updating.md). The version in `package.json` is recorded in each project's `development-standards.lock.json`.
 
+## 0.6.2
+
+- Share the managed `scripts/lib/git-executable.mjs` helper between the checklist checker and TypeScript coverage gate.
+- Resolve git once per checklist run.
+- Document `GIT_EXECUTABLE` for Nix, asdf, Scoop, and other non-standard git installs.
+
 ## 0.6.1
 
 - Run checklist `git` commands from an absolute path: `GIT_EXECUTABLE`, else a standard install location.
-- Simplify checklist item sorting while preserving code-point order.
+- Simplify checklist item sorting while preserving UTF-16 code unit order.
 - Limit the consumer checklist example to pull requests and merge groups; remove the push base fallback.
 
 Upgrading: projects with an existing `config/review-checklist.json` when first receiving the 0.6 managed file hit an updater conflict: the new standards file collides with project content. Keep the project file with `--keep-local config/review-checklist.json`, or merge the project's items into the shipped v1 format and rerun the updater. Projects that already adopted 0.6.0 and only added items keep those additions automatically; the shipped file remains the empty v1 baseline.

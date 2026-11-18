@@ -1,0 +1,1 @@
+{"version":1,"items":[{"id":"stale.match","paths":["src/**/*.cs"],"check":"Review lookup behaviour.","source":{"type":"repeated-finding","ref":"#123"},"expires":"2020-01-01"},{"id":"stale.unmatched","paths":["other/**"],"check":"Review other files.","source":{"type":"incident","ref":"#124"},"expires":"2020-01-01"}]}

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { parse, run, match } from './review-checklist.mjs';
+import { parse, run, match, resolveGitExecutable } from './review-checklist.mjs';
 
 const script = fileURLToPath(new URL('./review-checklist.mjs', import.meta.url));
 const rulesPath = 'config/review-checklist.json';
@@ -37,6 +37,22 @@ function repository(t, rules = fixture('active'), destination = rulesPath, chang
   return { root, base };
 }
 function cli(root, ...args) { return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: 'utf8' }); }
+
+test('absolute GIT_EXECUTABLE overrides known installs without an existence check', () => {
+  const executable = path.resolve('/opt/git/bin/git');
+  assert.equal(resolveGitExecutable({ GIT_EXECUTABLE: executable }, () => false), executable);
+});
+
+test('relative GIT_EXECUTABLE and missing Git installs throw', () => {
+  assert.throws(() => resolveGitExecutable({ GIT_EXECUTABLE: 'git' }, () => false), { message: 'GIT_EXECUTABLE must be an absolute path.' });
+  assert.throws(() => resolveGitExecutable({}, () => false), /git not found\. Set GIT_EXECUTABLE to an absolute path or install git at /);
+});
+
+test('known Git install resolves to an absolute path', () => {
+  const executable = resolveGitExecutable({}, (candidate) => candidate === '/usr/bin/git');
+  assert.equal(executable, '/usr/bin/git');
+  assert.ok(path.isAbsolute(executable));
+});
 
 test('CLI uses base rules despite committed and uncommitted head rule edits', (t) => {
   const { root, base } = repository(t, fixture('active'), rulesPath, { 'src/Foo.cs': 'changed', [rulesPath]: fixture('empty') });

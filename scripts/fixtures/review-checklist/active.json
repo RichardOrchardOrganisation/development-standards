@@ -1,0 +1,1 @@
+{"version":1,"items":[{"id":"data.collation-lookup","paths":["src/**/*.cs"],"check":"Lookups must not depend on collation.","source":{"type":"incident","ref":"#123"},"automatedCheck":null,"owner":"@handle","expires":"2099-01-01"}]}
